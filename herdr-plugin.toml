@@ -1,0 +1,38 @@
+id = "fabrik"
+name = "fabrik"
+version = "0.1.0"
+min_herdr_version = "0.9.3"
+description = "Run an AI-agent company in herdr: org chart, heartbeats, Plane + Obsidian."
+platforms = ["linux", "macos"]
+
+# Install dependencies and put the `fabrik` CLI on PATH (~/.local/bin/fabrik).
+[[build]]
+command = ["sh", "-c", "npm ci --omit=dev --no-audit --no-fund && node src/cli.ts shim install"]
+
+# herdr does not persist pane metadata across restarts: re-apply roles/models, then exit.
+# The heartbeat itself runs under systemd (`fabrik service install`), because herdr does not
+# supervise startup commands.
+[[startup]]
+command = ["node", "src/cli.ts", "hook", "startup"]
+
+[[actions]]
+id = "status"
+title = "fabrik: company status"
+description = "Agents, queues and daemon state for this session's fabrik companies"
+contexts = ["global", "workspace", "pane"]
+command = ["herdr", "plugin", "pane", "open", "--plugin", "fabrik", "--entrypoint", "status"]
+
+[[actions]]
+id = "wake"
+title = "fabrik: wake this agent"
+description = "Queue a heartbeat for the fabrik agent in the focused pane"
+contexts = ["pane"]
+command = ["node", "src/cli.ts", "hook", "wake-focused"]
+
+[[panes]]
+id = "status"
+title = "fabrik status"
+placement = "popup"
+width = "80%"
+height = "70%"
+command = ["node", "src/cli.ts", "hook", "status-pane"]

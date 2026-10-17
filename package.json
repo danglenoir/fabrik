@@ -1,0 +1,26 @@
+{
+  "name": "fabrik",
+  "version": "0.1.0",
+  "description": "Run an AI-agent company in herdr: org chart, heartbeats, Plane + Obsidian.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "fabrik": "bin/fabrik"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "fabrik": "node src/cli.ts"
+  },
+  "dependencies": {
+    "yaml": "2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.9.1",
+    "typescript": "5.9.3"
+  }
+}

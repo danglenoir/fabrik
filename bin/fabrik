@@ -1,0 +1,5 @@
+#!/bin/sh
+# fabrik CLI: runs the TypeScript sources directly with Node >= 24 (type stripping, no build step).
+self=$(readlink -f "$0")
+root=$(dirname "$(dirname "$self")")
+exec node "$root/src/cli.ts" "$@"
