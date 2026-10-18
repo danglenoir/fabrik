@@ -5,15 +5,16 @@ min_herdr_version = "0.9.3"
 description = "Run an AI-agent company in herdr: org chart, heartbeats, Plane + Obsidian."
 platforms = ["linux", "macos"]
 
-# Install dependencies and put the `fabrik` CLI on PATH (~/.local/bin/fabrik).
+# Install dependencies and put the `fabrik` CLI on PATH (~/.local/bin/fabrik). Every command runs
+# through bin/fabrik, which finds a Node.js >= 24 even when an older one comes first on herdr's PATH.
 [[build]]
-command = ["sh", "-c", "npm ci --omit=dev --no-audit --no-fund && node src/cli.ts shim install"]
+command = ["sh", "-c", "npm ci --omit=dev --no-audit --no-fund && sh bin/fabrik shim install"]
 
 # herdr does not persist pane metadata across restarts: re-apply roles/models, then exit.
 # The heartbeat itself runs under systemd (`fabrik service install`), because herdr does not
 # supervise startup commands.
 [[startup]]
-command = ["node", "src/cli.ts", "hook", "startup"]
+command = ["sh", "bin/fabrik", "hook", "startup"]
 
 [[actions]]
 id = "status"
@@ -27,7 +28,7 @@ id = "wake"
 title = "fabrik: wake this agent"
 description = "Queue a heartbeat for the fabrik agent in the focused pane"
 contexts = ["pane"]
-command = ["node", "src/cli.ts", "hook", "wake-focused"]
+command = ["sh", "bin/fabrik", "hook", "wake-focused"]
 
 [[panes]]
 id = "status"
@@ -35,4 +36,5 @@ title = "fabrik status"
 placement = "popup"
 width = "80%"
 height = "70%"
-command = ["node", "src/cli.ts", "hook", "status-pane"]
+# Keep the popup open with the error when the command fails, instead of closing it at once.
+command = ["sh", "-c", "sh bin/fabrik hook status-pane || { printf '\\nPress Enter to close. '; read -r _; }"]

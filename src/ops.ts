@@ -59,19 +59,30 @@ export async function startupHook(): Promise<string[]> {
 
 export function shimScript(): string {
   return `#!/bin/sh
-# fabrik CLI shim (written by \`fabrik shim install\`). Finds the fabrik plugin and runs it with Node >= 24.
+# fabrik CLI shim (written by \`fabrik shim install\`). Finds the fabrik plugin and runs its launcher,
+# which picks a Node.js >= 24.
 root=$(cat "\${FABRIK_CONFIG_DIR:-\${XDG_CONFIG_HOME:-$HOME/.config}/fabrik}/plugin-root" 2>/dev/null)
-if [ ! -f "$root/src/cli.ts" ]; then
+if [ ! -f "$root/bin/fabrik" ]; then
   root=$(herdr plugin list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const l=j.plugins??j.result?.plugins??j;const p=l.find(x=>x.plugin_id==="fabrik"||x.id==="fabrik");if(p)console.log(p.plugin_root)}catch{}})')
 fi
-[ -f "$root/src/cli.ts" ] || root=${JSON.stringify(FABRIK_ROOT)}
-exec node "$root/src/cli.ts" "$@"
+[ -f "$root/bin/fabrik" ] || root=${JSON.stringify(FABRIK_ROOT)}
+exec sh "$root/bin/fabrik" "$@"
 `;
+}
+
+/** The Node.js recorded by `fabrik shim install`; bin/fabrik prefers it over whatever is on PATH. */
+export function pinnedNode(): string | null {
+  try {
+    return readFileSync(join(configDir(), 'node'), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 export function installShim(): string {
   const bin = join(homedir(), '.local', 'bin', 'fabrik');
   writeFileAtomic(join(configDir(), 'plugin-root'), FABRIK_ROOT + '\n');
+  writeFileAtomic(join(configDir(), 'node'), process.execPath + '\n');
   writeFileAtomic(bin, shimScript(), 0o755);
   return bin;
 }
@@ -127,8 +138,16 @@ export async function doctor(company: Company): Promise<Check[]> {
   const checks: Check[] = [];
   const add = (level: Check['level'], text: string) => checks.push({ level, text });
 
-  const major = Number(process.versions.node.split('.')[0]);
-  add(major >= 24 ? 'ok' : 'fail', `node ${process.versions.node}${major >= 24 ? '' : ' (fabrik needs >= 24 for TypeScript type stripping)'}`);
+  // herdr plugin commands go through bin/fabrik, which prefers the pinned Node over herdr's PATH.
+  const pinned = pinnedNode();
+  let nodeVersion = process.versions.node;
+  if (pinned) {
+    try { nodeVersion = execFileSync(pinned, ['-p', 'process.versions.node'], { encoding: 'utf8' }).trim(); } catch { nodeVersion = 'missing'; }
+  }
+  const major = Number(nodeVersion.split('.')[0]);
+  if (!(major >= 24)) add('fail', `node ${nodeVersion} at ${pinned ?? process.execPath}: fabrik needs Node.js >= 24; run fabrik shim install with Node 24`);
+  else if (!pinned) add('warn', `node ${nodeVersion}, but no Node is pinned for herdr plugin commands; run: fabrik shim install`);
+  else add('ok', `node ${nodeVersion} pinned for fabrik and its herdr plugin commands (${pinned})`);
 
   const herdr = new Herdr(company.config.herdr.session);
   try {

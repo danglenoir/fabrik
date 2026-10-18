@@ -1,5 +1,29 @@
 #!/bin/sh
-# fabrik CLI: runs the TypeScript sources directly with Node >= 24 (type stripping, no build step).
+# fabrik launcher. fabrik runs its TypeScript sources directly, which needs Node.js >= 24.
+# herdr starts plugin commands with the PATH of the shell that launched the server, where an
+# older Node (nvm, distro packages) may come first, so pick the interpreter explicitly:
+#   1. $FABRIK_NODE
+#   2. the Node recorded by `fabrik shim install` (<config>/node)
+#   3. the first Node >= 24 among `node` on PATH and common install locations
 self=$(readlink -f "$0")
 root=$(dirname "$(dirname "$self")")
-exec node "$root/src/cli.ts" "$@"
+config="${FABRIK_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/fabrik}"
+
+ok() {
+  [ -x "$1" ] && "$1" -e 'process.exit(+process.versions.node.split(".")[0] >= 24 ? 0 : 1)' 2>/dev/null
+}
+
+node=""
+for candidate in "$FABRIK_NODE" "$(cat "$config/node" 2>/dev/null)" "$(command -v node 2>/dev/null)" \
+  "$HOME/.local/bin/node" /usr/local/bin/node /opt/homebrew/bin/node /usr/bin/node "$HOME/.volta/bin/node" \
+  $(ls -d "$HOME"/.nvm/versions/node/v*/bin/node 2>/dev/null | sort -rV); do
+  if [ -n "$candidate" ] && ok "$candidate"; then node=$candidate; break; fi
+done
+
+if [ -z "$node" ]; then
+  found=$(command -v node 2>/dev/null)
+  echo "fabrik: Node.js 24 or newer is required${found:+ (found $("$found" --version 2>/dev/null) at $found)}." >&2
+  echo "fabrik: install Node 24, then run 'fabrik shim install' with it, or set FABRIK_NODE=/path/to/node." >&2
+  exit 127
+fi
+exec "$node" "$root/src/cli.ts" "$@"
