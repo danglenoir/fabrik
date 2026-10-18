@@ -101,6 +101,10 @@ export class Herdr {
     return r.agent ?? r;
   }
 
+  async renameAgent(target: string, name: string): Promise<void> {
+    await this.run(['agent', 'rename', target, name]);
+  }
+
   async startAgent(name: string, kind: string, paneId: string, args: string[], timeoutMs: number): Promise<HerdrAgent> {
     const t = Math.min(Math.max(timeoutMs, 3000), 300_000);
     const r = await this.run(['agent', 'start', name, '--kind', kind, '--pane', paneId, '--timeout', String(t), '--', ...args], t + 15_000);

@@ -12,10 +12,13 @@ export interface ApplyOptions {
   acceptTrust?: boolean;
   only?: string[];
   say?: (line: string) => void;
+  herdr?: Herdr; // tests inject a fake
 }
 
 export interface ApplyResult {
   started: string[];
+  wouldStart: string[]; // dry run only
+  introduced: string[];
   existing: string[];
   needsAttention: Array<{ agent: string; reason: string }>;
   skipped: Array<{ agent: string; reason: string }>;
@@ -49,22 +52,83 @@ async function findOrCreateWorkspace(herdr: Herdr, company: Company, knownId: st
 }
 
 /**
- * An agent that is blocked right after start: accept the folder-trust prompt when allowed,
- * otherwise explain what the human has to do. Returns null once the agent is ready.
+ * The live herdr agent for `agent`. herdr loses the agent name when a start is interrupted (an
+ * update prompt, a trust prompt answered by hand), so fall back to the unnamed agent of the right
+ * kind in the pane fabrik last used for it, and give it its name back.
  */
-async function handleStartupBlock(herdr: Herdr, company: Company, agent: AgentDef, acceptTrust?: boolean): Promise<string | null> {
+export async function locateAgent(herdr: Herdr, company: Company, agent: AgentDef, live: HerdrAgent[], paneId: string | null): Promise<HerdrAgent | undefined> {
   const name = herdrName(company, agent);
+  const named = live.find((a) => a.name === name);
+  if (named || !paneId) return named;
+  const unnamed = live.find((a) => a.pane_id === paneId && !a.name && a.agent === agent.harness);
+  if (!unnamed) return undefined;
+  await herdr.renameAgent(unnamed.pane_id, name);
+  unnamed.name = name;
+  return unnamed;
+}
+
+function lastLine(screen: string): string {
+  const line = screen.split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? '';
+  return line.length > 80 ? `${line.slice(0, 77)}...` : line;
+}
+
+/**
+ * An agent that is blocked right after start: dismiss known popups (update prompts), accept the
+ * folder-trust prompt when allowed, otherwise explain what the human has to do. Returns null once
+ * the agent in pane `target` is ready.
+ */
+async function handleStartupBlock(herdr: Herdr, agent: AgentDef, target: string, acceptTrust?: boolean): Promise<string | null> {
   const adapter = adapterFor(agent);
-  const screen = await herdr.read(name).catch(() => '');
-  if (!adapter.trust || !adapter.trust.pattern.test(screen)) return `blocked during startup; check tab "${tabLabel(agent)}"`;
-  if (!acceptTrust || !adapter.trust.keys) {
-    return `${agent.harness} asks to trust ${agent.dir}: answer in tab "${tabLabel(agent)}"${adapter.trust.keys ? ' or rerun with --accept-trust' : ''}`;
+  for (let round = 0; round < 3; round++) {
+    const screen = await herdr.read(target).catch(() => '');
+    const popup = adapter.dialogs.find((d) => d.keys && d.pattern.test(screen));
+    if (popup) {
+      await herdr.sendKeys(target, popup.keys!);
+      await herdr.waitFor(target, 'idle', 15_000).catch(() => undefined);
+      const after = await herdr.agent(target).catch(() => null);
+      if (after && (after.agent_status === 'idle' || after.agent_status === 'done')) return null;
+      continue; // another popup may follow, e.g. the trust prompt
+    }
+    if (!adapter.trust || !adapter.trust.pattern.test(screen)) {
+      const hint = lastLine(screen);
+      return `blocked during startup${hint ? ` ("${hint}")` : ''}; answer it in tab "${tabLabel(agent)}", then run fabrik apply again`;
+    }
+    if (!acceptTrust || !adapter.trust.keys) {
+      return `${agent.harness} asks to trust ${agent.dir}: answer in tab "${tabLabel(agent)}"${adapter.trust.keys ? ' or rerun with --accept-trust' : ', then run fabrik apply again'}`;
+    }
+    await herdr.sendKeys(target, adapter.trust.keys);
+    await herdr.waitFor(target, 'idle', 60_000).catch(() => undefined);
+    const after = await herdr.agent(target).catch(() => null);
+    if (after && after.agent_status !== 'idle' && after.agent_status !== 'done') return `still ${after.agent_status} after accepting trust; check tab "${tabLabel(agent)}"`;
+    return null;
   }
-  await herdr.sendKeys(name, adapter.trust.keys);
-  await herdr.waitFor(name, 'idle', 60_000).catch(() => undefined);
-  const after = await herdr.agent(name).catch(() => null);
-  if (after && after.agent_status !== 'idle' && after.agent_status !== 'done') return `still ${after.agent_status} after accepting trust; check tab "${tabLabel(agent)}"`;
-  return null;
+  return `still blocked after dismissing startup popups; check tab "${tabLabel(agent)}"`;
+}
+
+/**
+ * Send the one-time introduction and confirm the agent took it: it must start working or finish
+ * a turn. A prompt typed while a harness is still drawing its splash screen can be swallowed, so
+ * try twice before giving up.
+ */
+async function sendIntro(herdr: Herdr, company: Company, agent: AgentDef): Promise<boolean> {
+  const name = herdrName(company, agent);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const before = await herdr.agent(name).catch(() => null);
+    await herdr.prompt(name, introPrompt(company, agent));
+    if (await herdr.waitFor(name, 'working', 20_000).then(() => true, () => false)) return true;
+    const after = await herdr.agent(name).catch(() => null);
+    if (after && (after.agent_status === 'working' || (before && after.completion_seq > before.completion_seq))) return true;
+  }
+  return false;
+}
+
+async function introduce(herdr: Herdr, company: Company, agent: AgentDef, result: ApplyResult): Promise<void> {
+  if (await sendIntro(herdr, company, agent)) {
+    await withState(company, (s) => { s.agents[agent.slug]!.introduced = true; });
+    result.introduced.push(agent.slug);
+  } else {
+    result.needsAttention.push({ agent: agent.slug, reason: `did not pick up its introduction; check tab "${tabLabel(agent)}", then run fabrik apply again` });
+  }
 }
 
 /** Re-report display metadata for every live fabrik agent. herdr drops it on server restart. */
@@ -83,10 +147,11 @@ export async function reapplyMetadata(company: Company, herdr: Herdr, live?: Her
 export async function apply(company: Company, opts: ApplyOptions = {}): Promise<ApplyResult> {
   const say = opts.say ?? (() => undefined);
   const dryRun = !!opts.dryRun;
-  const herdr = new Herdr(company.config.herdr.session);
-  const result: ApplyResult = { started: [], existing: [], needsAttention: [], skipped: [], orphans: [] };
+  const herdr = opts.herdr ?? new Herdr(company.config.herdr.session);
+  const result: ApplyResult = { started: [], wouldStart: [], introduced: [], existing: [], needsAttention: [], skipped: [], orphans: [] };
 
-  const knownWs = await withState(company, (s) => s.workspaceId);
+  const known = await withState(company, (s) => ({ workspaceId: s.workspaceId, panes: Object.fromEntries(Object.entries(s.agents).map(([k, a]) => [k, a.paneId])) }));
+  const knownWs = known.workspaceId;
   const wsId = await findOrCreateWorkspace(herdr, company, knownWs, dryRun, say);
   if (wsId && !dryRun) await withState(company, (s) => { s.workspaceId = wsId; });
 
@@ -105,10 +170,10 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
     const adapter = adapterFor(agent);
     if (!adapter.supported) { result.skipped.push({ agent: agent.slug, reason: `${agent.harness} is not supported yet` }); continue; }
 
-    const running = live.find((a) => a.name === name);
+    const running = dryRun ? live.find((a) => a.name === name) : await locateAgent(herdr, company, agent, live, known.panes[agent.slug] ?? null);
     if (running && running.agent_status === 'blocked' && !dryRun) {
       // Typically the folder-trust prompt from an earlier `apply` without --accept-trust.
-      const trouble = await handleStartupBlock(herdr, company, agent, opts.acceptTrust);
+      const trouble = await handleStartupBlock(herdr, agent, running.pane_id, opts.acceptTrust);
       if (trouble) { result.needsAttention.push({ agent: agent.slug, reason: trouble }); continue; }
       running.agent_status = 'idle';
     }
@@ -123,10 +188,7 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
           return a.introduced;
         });
         // An agent started by hand after a trust prompt still needs its introduction.
-        if (!introduced && (running.agent_status === 'idle' || running.agent_status === 'done')) {
-          await herdr.prompt(name, introPrompt(company, agent));
-          await withState(company, (s) => { s.agents[agent.slug]!.introduced = true; });
-        }
+        if (!introduced && (running.agent_status === 'idle' || running.agent_status === 'done')) await introduce(herdr, company, agent, result);
       }
       continue;
     }
@@ -137,7 +199,7 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
 
     const label = tabLabel(agent);
     say(`start ${name}: tab "${label}", ${agent.harness} ${adapter.launchArgs(agent, company).slice(0, 2).join(' ')} …`);
-    if (dryRun || !wsId) { result.started.push(agent.slug); continue; }
+    if (dryRun || !wsId) { result.wouldStart.push(agent.slug); continue; }
 
     // Reuse an existing tab with this label if its root pane is free (e.g. the agent exited), else open a new one.
     let paneId: string;
@@ -161,8 +223,10 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
         continue;
       }
       await withState(company, (s) => { const a = s.agents[agent.slug]!; a.paneId = paneId; a.tabId = tabId; });
-      const trouble = await handleStartupBlock(herdr, company, agent, opts.acceptTrust);
+      const trouble = await handleStartupBlock(herdr, agent, paneId, opts.acceptTrust);
       if (trouble) { result.needsAttention.push({ agent: agent.slug, reason: trouble }); continue; }
+      // The interrupted start may have left the agent without its name.
+      await locateAgent(herdr, company, agent, await herdr.agents(), paneId);
     }
 
     await herdr.reportMetadata(paneId, metadataFor(company, agent)).catch(() => undefined);
@@ -172,11 +236,8 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
       a.tabId = tabId;
       return a.introduced;
     });
-    if (!introduced) {
-      await herdr.prompt(name, introPrompt(company, agent));
-      await withState(company, (s) => { s.agents[agent.slug]!.introduced = true; });
-    }
     result.started.push(agent.slug);
+    if (!introduced) await introduce(herdr, company, agent, result);
   }
 
   if (!dryRun) writeFileSync(join(company.root, 'ORG.md'), renderOrg(company));

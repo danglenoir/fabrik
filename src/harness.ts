@@ -74,7 +74,8 @@ const codex: HarnessAdapter = {
   harness: 'codex',
   supported: true,
   launchArgs(agent, company) {
-    const args = ['-m', agent.model, ...CODEX_PERMISSION[agent.autonomy]];
+    // No update prompt at startup: it blocks the pane until a human answers it.
+    const args = ['-m', agent.model, ...CODEX_PERMISSION[agent.autonomy], '-c', 'check_for_update_on_startup=false'];
     if (agent.autonomy !== 'high') {
       // The workspace-write sandbox only covers the cwd and has no network. fabrik needs to
       // write claims/reports under .fabrik/, journals in the vault, and reach Plane.
@@ -88,7 +89,9 @@ const codex: HarnessAdapter = {
     return args;
   },
   resetCommand: '/new',
-  dialogs: [],
+  dialogs: [
+    { name: 'update-prompt', pattern: /Update available[\s\S]*Skip until next version/i, keys: ['down', 'enter'] }, // "2. Skip"
+  ],
   trust: { name: 'folder-trust', pattern: /Do you trust the contents of this directory|trust this (folder|directory)/i, keys: null },
   async listModels() {
     const out = await exec('codex', ['debug', 'models']);

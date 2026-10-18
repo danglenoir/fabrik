@@ -161,7 +161,8 @@ async function main(argv: string[]): Promise<number> {
       const c = company();
       const r = await apply(c, { dryRun: o['dry-run'], acceptTrust: o['accept-trust'], only: o.only?.split(','), say: (s) => out(`· ${s}`) });
       if (!o['dry-run']) registerCompany(c);
-      out(`started: ${r.started.join(', ') || '-'} · already running: ${r.existing.join(', ') || '-'}`);
+      if (o['dry-run']) out(`would start: ${r.wouldStart.join(', ') || '-'} · already running: ${r.existing.join(', ') || '-'}`);
+      else out(`started: ${r.started.join(', ') || '-'} · already running: ${r.existing.join(', ') || '-'} · introduced: ${r.introduced.join(', ') || '-'}`);
       for (const s of r.skipped) out(`skipped ${s.agent}: ${s.reason}`);
       for (const n of r.needsAttention) out(`⚠ ${n.agent}: ${n.reason}`);
       for (const n of r.orphans) out(`⚠ ${n} runs in the company workspace but is not in the org (close its tab if unwanted)`);
