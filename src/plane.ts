@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import type { CompanyConfig } from './company.ts';
-import { FabrikError, sleep } from './util.ts';
+import { fabrikConfigDir, FabrikError, readJson, sleep, withFileLock, writeJson } from './util.ts';
 
 export interface PlaneState { id: string; name: string; group: string }
 export interface PlaneLabel { id: string; name: string }
@@ -45,31 +47,56 @@ export function stripHtml(html: string): string {
 
 type PlaneConfig = NonNullable<CompanyConfig['plane']>;
 
+export interface PlaneOptions {
+  fetch?: typeof fetch;
+  /** Called before waiting out a 429. Defaults to a line on stderr. */
+  onRetry?: (message: string) => void;
+}
+
+/**
+ * Plane rate-limits per API key, but the daemon and every agent's `fabrik task …` call are separate
+ * processes. They share one request window in a file, keyed by Plane URL and key.
+ */
+function rateFile(cfg: PlaneConfig, apiKey: string): string {
+  const id = createHash('sha256').update(`${cfg.url}\n${apiKey}`).digest('hex').slice(0, 12);
+  return join(fabrikConfigDir(), 'plane-rate', `${id}.json`);
+}
+
 /** Plane Community Edition /api/v1 client (X-Api-Key). Cloud-only features are not used. */
 export class Plane {
   private cfg: PlaneConfig;
   private key: string;
   private fetchImpl: typeof fetch;
-  private sent: number[] = [];
+  private onRetry: (message: string) => void;
+  private rateFile: string;
   private projectCache: PlaneProject[] | null = null;
   private stateCache = new Map<string, PlaneState[]>();
   private labelCache = new Map<string, PlaneLabel[]>();
 
-  constructor(cfg: PlaneConfig, apiKey: string, fetchImpl: typeof fetch = fetch) {
+  constructor(cfg: PlaneConfig, apiKey: string, opts: PlaneOptions = {}) {
     if (!apiKey) throw new FabrikError('no_plane_key', `Plane API key missing: run fabrik secret set ${cfg.keyEnv}`);
     this.cfg = cfg;
     this.key = apiKey;
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = opts.fetch ?? fetch;
+    this.onRetry = opts.onRetry ?? ((m) => process.stderr.write(`fabrik: ${m}\n`));
+    this.rateFile = rateFile(cfg, apiKey);
   }
 
+  /** Sliding one-minute window of at most `maxRpm` requests, shared by all fabrik processes. */
   private async throttle(): Promise<void> {
     for (;;) {
-      const now = Date.now();
-      this.sent = this.sent.filter((t) => now - t < 60_000);
-      if (this.sent.length < this.cfg.maxRpm) break;
-      await sleep(60_000 - (now - this.sent[0]!) + 50);
+      const wait = await withFileLock(`${this.rateFile}.lock`, () => {
+        const now = Date.now();
+        let sent: number[];
+        try { sent = readJson<number[]>(this.rateFile, []).filter((t) => now - t < 60_000); } catch { sent = []; }
+        if (sent.length >= this.cfg.maxRpm) return 60_000 - (now - sent[0]!) + 50;
+        sent.push(now);
+        writeJson(this.rateFile, sent);
+        return 0;
+      }, { timeoutMs: 30_000, staleMs: 10_000 });
+      if (wait === 0) return;
+      await sleep(wait);
     }
-    this.sent.push(Date.now());
   }
 
   async request<T = any>(method: string, path: string, body?: unknown): Promise<T> {
@@ -82,8 +109,9 @@ export class Plane {
       });
       if (res.status === 429 && attempt < 3) {
         const reset = Number(res.headers.get('x-ratelimit-reset'));
-        const wait = Number.isFinite(reset) && reset > 0 ? Math.max(1000, reset * 1000 - Date.now()) : 15_000;
-        await sleep(Math.min(wait, 65_000));
+        const wait = Math.min(Number.isFinite(reset) && reset > 0 ? Math.max(1000, reset * 1000 - Date.now()) : 15_000, 65_000);
+        this.onRetry(`Plane rate limit hit (429) on ${method} ${path.split('?')[0]}; retrying in ${Math.ceil(wait / 1000)}s`);
+        await sleep(wait);
         continue;
       }
       if (!res.ok) {

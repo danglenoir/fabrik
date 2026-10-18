@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { askHuman, inbox, note, runDone, taskClaim, taskComment, taskCreate, taskState } from '../src/agent.ts';
@@ -45,7 +45,8 @@ test('secrets are stored 0600 outside the company dir', () => {
 
 test('plane client pages, maps labels/states and retries 429', async () => {
   for (let i = 0; i < 3; i++) fake.addIssue(`paging ${i}`);
-  const plane = new Plane(company.config.plane!, fake.key);
+  const retries: string[] = [];
+  const plane = new Plane(company.config.plane!, fake.key, { onRetry: (m) => retries.push(m) });
   fake.rateLimitNext = 1;
   const all = await plane.issuesUpdatedSince('ACME', null);
   assert.equal(all.length, fake.issues.length);
@@ -55,6 +56,16 @@ test('plane client pages, maps labels/states and retries 429', async () => {
   const one = await plane.issue(all[0]!.key);
   assert.equal(one.id, all[0]!.id);
   assert.equal((await plane.stateFor(one.projectId, 'in_review')).name, 'In Review');
+  assert.match(retries[0] ?? '', /rate limit hit \(429\) on GET/);
+});
+
+test('plane clients share one request window across processes', async () => {
+  const cfg = { ...company.config.plane!, maxRpm: 1000 };
+  await new Plane(cfg, fake.key, { onRetry: () => undefined }).me();
+  await new Plane(cfg, fake.key, { onRetry: () => undefined }).me();
+  const dir = join(process.env.FABRIK_CONFIG_DIR!, 'plane-rate');
+  const [file] = readdirSync(dir).filter((f) => f.endsWith('.json'));
+  assert.ok(JSON.parse(readFileSync(join(dir, file!), 'utf8')).length >= 2, 'both clients counted in the same window');
 });
 
 test('claims are exclusive', () => {

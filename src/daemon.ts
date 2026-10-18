@@ -88,7 +88,7 @@ export class Daemon {
     this.company = company;
     this.herdr = new Herdr(company.config.herdr.session);
     const p = company.config.plane;
-    this.plane = p ? new Plane(p, getSecret(company, p.keyEnv)) : null;
+    this.plane = p ? new Plane(p, getSecret(company, p.keyEnv), { onRetry: (m) => log(m) }) : null;
   }
 
   /** Poll Plane and return wake events; updates snapshots in `state`. */
