@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { askHuman, inbox, note, requireAgent, runDone, taskClaim, taskComment, taskCreate, taskRelease, taskShow, taskState, whoami } from './agent.ts';
 import { apply } from './apply.ts';
 import { pauseAgent, stopAgent } from './control.ts';
 import { setGear } from './edit.ts';
+import { reviewInHerdr, reviewPane, reviewTarget, runPicker } from './review.ts';
 import { GEARS, herdrName, loadCompany, renderOrg } from './company.ts';
 import type { Company } from './company.ts';
 import { Daemon, daemonPid, wakeDir } from './daemon.ts';
@@ -15,7 +16,7 @@ import { doctor, installService, installShim, readSkill, registerCompany, servic
 import { readSecrets, secretsPath, setSecret } from './secrets.ts';
 import { companyStatus, renderTable, sessionCompanies, statusPane } from './status.ts';
 import { FabrikError, writeJson } from './util.ts';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const HELP = `fabrik — run an AI-agent company in herdr
 
@@ -28,6 +29,7 @@ Setup
   fabrik shim install                                     put \`fabrik\` on PATH (~/.local/bin)
 
 Operate
+  fabrik review [PROPOSAL]    pick models, efforts and the gear; switch agents on or off
   fabrik gear [steady|turbo]  show or change how hard the company runs
   fabrik status | org | models [harness]
   fabrik wake <slug> [--reason TEXT] [--key KEY]
@@ -54,7 +56,7 @@ const OPTIONS = {
   'dry-run': { type: 'boolean' }, 'accept-trust': { type: 'boolean' }, only: { type: 'string' }, once: { type: 'boolean' },
   reason: { type: 'string' }, key: { type: 'string' }, as: { type: 'string' }, assign: { type: 'string' }, parent: { type: 'string' },
   body: { type: 'string' }, project: { type: 'string' }, task: { type: 'string' }, summary: { type: 'string' },
-  json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
+  wait: { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
 } as const;
 
 function packageVersion(): string {
@@ -175,8 +177,23 @@ async function main(argv: string[]): Promise<number> {
       if (sub === 'status-pane') { await statusPane(); process.exit(0); }
       if (sub === 'wake-focused') { out(await wakeFocused()); return 0; }
       if (sub === 'stop-focused') { out(await stopFocused()); return 0; }
-      throw new FabrikError('usage', 'fabrik hook startup|status-pane|wake-focused|stop-focused');
+      if (sub === 'review-pane') { await reviewPane(reviewTarget(need(process.env.FABRIK_REVIEW_TARGET, 'FABRIK_REVIEW_TARGET'))); process.exit(0); }
+      throw new FabrikError('usage', 'fabrik hook startup|status-pane|wake-focused|stop-focused|review-pane');
 
+    case 'review': {
+      const arg = sub ? resolve(sub) : company().root;
+      const target = reviewTarget(arg);
+      const isProposal = !!sub && !existsSync(join(arg, 'fabrik.yaml'));
+      const after = isProposal ? `next: fabrik init --from ${arg}` : 'agents with changes restart once idle (the daemon does this; or run fabrik apply)';
+      let r: { outcome: string; summary: string } | null;
+      if (process.stdin.isTTY && process.stdout.isTTY) r = await runPicker(target);
+      else if (process.env.HERDR_ENV || process.env.HERDR_SOCKET_PATH) r = await reviewInHerdr(target, arg, { reopen: !o.wait, waitMs: 100_000 });
+      else throw new FabrikError('usage', 'fabrik review needs a terminal or a herdr session');
+      if (!r) { out(`the review is open in a herdr popup; once the human is done, run: fabrik review${sub ? ` ${arg}` : ''} --wait`); return 4; }
+      if (r.outcome !== 'accept') { out(`${r.outcome === 'cancel' ? 'cancelled, nothing changed' : r.outcome}: ${r.summary}`); return 1; }
+      out(`accepted: ${r.summary}\n${after}`);
+      return 0;
+    }
     case 'gear': {
       const c = company();
       if (!sub) { out(`gear ${c.config.gear}: ${GEARS[c.config.gear].summary}`); return 0; }

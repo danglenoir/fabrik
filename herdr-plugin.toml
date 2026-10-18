@@ -38,6 +38,15 @@ contexts = ["pane"]
 command = ["sh", "bin/fabrik", "hook", "stop-focused"]
 
 [[panes]]
+id = "review"
+title = "fabrik review"
+placement = "popup"
+width = 90
+height = 24
+# Opened by `fabrik review` with FABRIK_REVIEW_TARGET set to a proposal file or a company directory.
+command = ["sh", "-c", "sh bin/fabrik hook review-pane || { printf '\\nPress Enter to close. '; read -r _; }"]
+
+[[panes]]
 id = "status"
 title = "fabrik status"
 placement = "popup"
