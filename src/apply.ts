@@ -2,11 +2,12 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { herdrName, renderOrg, tabLabel } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
-import { adapterFor, agentEnv, shellExport } from './harness.ts';
+import { adapterFor, agentEnv, launchSignature, shellExport } from './harness.ts';
 import { Herdr, HerdrError } from './herdr.ts';
 import { installCompanySkill, syncCodexHome } from './isolation.ts';
 import type { HerdrAgent } from './herdr.ts';
 import { withState } from './state.ts';
+import { sleep } from './util.ts';
 
 export interface ApplyOptions {
   dryRun?: boolean;
@@ -18,6 +19,8 @@ export interface ApplyOptions {
 
 export interface ApplyResult {
   started: string[];
+  restarted: string[]; // new launch settings (model, effort, gear)
+  stopped: string[]; // switched off (enabled: false)
   wouldStart: string[]; // dry run only
   introduced: string[];
   existing: string[];
@@ -132,6 +135,57 @@ async function introduce(herdr: Herdr, company: Company, agent: AgentDef, result
   }
 }
 
+/** Start the agent's harness in `paneId`, which must be at a shell prompt. Returns a problem for the human, or null. */
+async function startInPane(herdr: Herdr, company: Company, agent: AgentDef, paneId: string, tabId: string, acceptTrust?: boolean): Promise<string | null> {
+  const adapter = adapterFor(agent);
+  try {
+    // herdr types the start command into the pane's shell, so variables exported there reach the harness.
+    await herdr.runInPane(paneId, shellExport(agentEnv(agent, company)));
+    await herdr.startAgent(herdrName(company, agent), adapter.harness, paneId, adapter.launchArgs(agent, company), company.config.herdr.startTimeoutMs);
+  } catch (err) {
+    if (!(err instanceof HerdrError) || err.code !== 'agent_not_ready') return `start failed: ${(err as Error).message}`;
+    await withState(company, (s) => { const a = s.agents[agent.slug]!; a.paneId = paneId; a.tabId = tabId; });
+    const trouble = await handleStartupBlock(herdr, agent, paneId, acceptTrust);
+    if (trouble) return trouble;
+    // The interrupted start may have left the agent without its name.
+    await locateAgent(herdr, company, agent, await herdr.agents(), paneId);
+  }
+  await herdr.reportMetadata(paneId, metadataFor(company, agent)).catch(() => undefined);
+  await withState(company, (s) => {
+    const a = s.agents[agent.slug]!;
+    a.paneId = paneId;
+    a.tabId = tabId;
+    a.launchSig = launchSignature(agent, company);
+  });
+  return null;
+}
+
+/** Quit the agent's harness (its exit command, then Ctrl-C twice) and wait until its pane is back at the shell. */
+export async function exitHarness(herdr: Herdr, company: Company, agent: AgentDef, live: HerdrAgent): Promise<boolean> {
+  const name = herdrName(company, agent);
+  const exited = async (ms: number) => {
+    for (const end = Date.now() + ms; ;) {
+      const agents = await herdr.agents().catch(() => null);
+      if (agents && !agents.some((a) => a.pane_id === live.pane_id)) return true;
+      if (Date.now() > end) return false;
+      await sleep(500);
+    }
+  };
+  await herdr.prompt(name, adapterFor(agent).exitCommand).catch(() => undefined);
+  if (await exited(15_000)) return true;
+  for (let i = 0; i < 2; i++) await herdr.sendKeys(name, ['ctrl+c']).catch(() => undefined);
+  return exited(10_000);
+}
+
+/**
+ * Restart an idle agent so new launch settings (model, effort, gear) take effect. Its chat is lost;
+ * tickets, notes and the queue are not.
+ */
+export async function restartAgent(herdr: Herdr, company: Company, agent: AgentDef, live: HerdrAgent): Promise<string | null> {
+  if (!(await exitHarness(herdr, company, agent, live))) return `did not quit for a restart with new settings; quit it in tab "${tabLabel(agent)}", then run fabrik apply`;
+  return startInPane(herdr, company, agent, live.pane_id, live.tab_id);
+}
+
 /** Re-report display metadata for every live fabrik agent. herdr drops it on server restart. */
 export async function reapplyMetadata(company: Company, herdr: Herdr, live?: HerdrAgent[]): Promise<number> {
   const agents = live ?? (await herdr.agents());
@@ -149,7 +203,7 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
   const say = opts.say ?? (() => undefined);
   const dryRun = !!opts.dryRun;
   const herdr = opts.herdr ?? new Herdr(company.config.herdr.session);
-  const result: ApplyResult = { started: [], wouldStart: [], introduced: [], existing: [], needsAttention: [], skipped: [], orphans: [] };
+  const result: ApplyResult = { started: [], restarted: [], stopped: [], wouldStart: [], introduced: [], existing: [], needsAttention: [], skipped: [], orphans: [] };
 
   const known = await withState(company, (s) => ({ workspaceId: s.workspaceId, panes: Object.fromEntries(Object.entries(s.agents).map(([k, a]) => [k, a.paneId])) }));
   const knownWs = known.workspaceId;
@@ -172,11 +226,18 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
   for (const agent of company.agents) {
     const name = herdrName(company, agent);
     if (opts.only && !opts.only.includes(agent.slug)) continue;
-    if (!agent.enabled) { result.skipped.push({ agent: agent.slug, reason: 'disabled in AGENTS.md' }); continue; }
     const adapter = adapterFor(agent);
     if (!adapter.supported) { result.skipped.push({ agent: agent.slug, reason: `${agent.harness} is not supported yet` }); continue; }
 
     const running = dryRun ? live.find((a) => a.name === name) : await locateAgent(herdr, company, agent, live, known.panes[agent.slug] ?? null);
+    const idle = running?.agent_status === 'idle' || running?.agent_status === 'done';
+    if (!agent.enabled) {
+      if (!running || dryRun) result.skipped.push({ agent: agent.slug, reason: 'switched off (enabled: false)' });
+      else if (!idle) result.skipped.push({ agent: agent.slug, reason: 'switched off; it stops once idle' });
+      else if (await exitHarness(herdr, company, agent, running)) result.stopped.push(agent.slug);
+      else result.needsAttention.push({ agent: agent.slug, reason: `switched off but did not quit; quit it in tab "${tabLabel(agent)}"` });
+      continue;
+    }
     if (running && running.agent_status === 'blocked' && !dryRun) {
       // Typically the folder-trust prompt from an earlier `apply` without --accept-trust.
       const trouble = await handleStartupBlock(herdr, agent, running.pane_id, opts.acceptTrust);
@@ -184,18 +245,31 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
       running.agent_status = 'idle';
     }
     if (running) {
-      result.existing.push(agent.slug);
-      if (!dryRun) {
-        await herdr.reportMetadata(running.pane_id, metadataFor(company, agent)).catch(() => undefined);
-        const introduced = await withState(company, (s) => {
-          const a = s.agents[agent.slug]!;
-          a.paneId = running.pane_id;
-          a.tabId = running.tab_id;
-          return a.introduced;
-        });
-        // An agent started by hand after a trust prompt still needs its introduction.
-        if (!introduced && (running.agent_status === 'idle' || running.agent_status === 'done')) await introduce(herdr, company, agent, result);
+      if (dryRun) { result.existing.push(agent.slug); continue; }
+      await herdr.reportMetadata(running.pane_id, metadataFor(company, agent)).catch(() => undefined);
+      const sig = launchSignature(agent, company);
+      const before = await withState(company, (s) => {
+        const a = s.agents[agent.slug]!;
+        a.paneId = running.pane_id;
+        a.tabId = running.tab_id;
+        const prev = { introduced: a.introduced, launchSig: a.launchSig };
+        a.launchSig ??= sig; // started by an older fabrik: adopt, do not restart
+        return prev;
+      });
+      if (before.launchSig !== null && before.launchSig !== sig) {
+        if (running.agent_status !== 'idle' && running.agent_status !== 'done') {
+          result.existing.push(agent.slug);
+          say(`${agent.slug} has new settings and restarts once idle`);
+          continue;
+        }
+        const trouble = await restartAgent(herdr, company, agent, running);
+        if (trouble) result.needsAttention.push({ agent: agent.slug, reason: trouble });
+        else result.restarted.push(agent.slug);
+        continue;
       }
+      result.existing.push(agent.slug);
+      // An agent started by hand after a trust prompt still needs its introduction.
+      if (!before.introduced && (running.agent_status === 'idle' || running.agent_status === 'done')) await introduce(herdr, company, agent, result);
       continue;
     }
     if (live.some((a) => a.name === name && a.workspace_id !== wsId)) {
@@ -221,31 +295,10 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
       tabId = created.tab.tab_id;
     }
 
-    try {
-      // herdr types the start command into the pane's shell, so variables exported there reach the harness.
-      await herdr.runInPane(paneId, shellExport(agentEnv(agent, company)));
-      await herdr.startAgent(name, adapter.harness, paneId, adapter.launchArgs(agent, company), company.config.herdr.startTimeoutMs);
-    } catch (err) {
-      if (!(err instanceof HerdrError) || err.code !== 'agent_not_ready') {
-        result.needsAttention.push({ agent: agent.slug, reason: `start failed: ${(err as Error).message}` });
-        continue;
-      }
-      await withState(company, (s) => { const a = s.agents[agent.slug]!; a.paneId = paneId; a.tabId = tabId; });
-      const trouble = await handleStartupBlock(herdr, agent, paneId, opts.acceptTrust);
-      if (trouble) { result.needsAttention.push({ agent: agent.slug, reason: trouble }); continue; }
-      // The interrupted start may have left the agent without its name.
-      await locateAgent(herdr, company, agent, await herdr.agents(), paneId);
-    }
-
-    await herdr.reportMetadata(paneId, metadataFor(company, agent)).catch(() => undefined);
-    const introduced = await withState(company, (s) => {
-      const a = s.agents[agent.slug]!;
-      a.paneId = paneId;
-      a.tabId = tabId;
-      return a.introduced;
-    });
+    const trouble = await startInPane(herdr, company, agent, paneId, tabId, opts.acceptTrust);
+    if (trouble) { result.needsAttention.push({ agent: agent.slug, reason: trouble }); continue; }
     result.started.push(agent.slug);
-    if (!introduced) await introduce(herdr, company, agent, result);
+    if (!(await withState(company, (s) => s.agents[agent.slug]!.introduced))) await introduce(herdr, company, agent, result);
   }
 
   if (!dryRun) writeFileSync(join(company.root, 'ORG.md'), renderOrg(company));

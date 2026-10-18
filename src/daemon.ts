@@ -1,10 +1,10 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
-import { herdrName } from './company.ts';
+import { herdrName, loadCompany } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
-import { locateAgent, reapplyMetadata } from './apply.ts';
+import { exitHarness, locateAgent, reapplyMetadata, restartAgent } from './apply.ts';
 import { allClaims, dropClaim } from './claims.ts';
-import { adapterFor } from './harness.ts';
+import { adapterFor, launchSignature } from './harness.ts';
 import { Herdr } from './herdr.ts';
 import type { HerdrAgent } from './herdr.ts';
 import { appendAttention, ensureVaultFolder, resolveAttention, scanInbox, writeStatusCard } from './obsidian.ts';
@@ -83,6 +83,7 @@ export class Daemon {
   private lastLiveCount = -1;
   /** Human questions whose answer an agent has handled; closed in Plane after the state lock is released. */
   private answered: string[] = [];
+  private configError = false;
 
   constructor(company: Company) {
     this.company = company;
@@ -248,6 +249,7 @@ export class Daemon {
   gate(agent: AgentDef, s: AgentState, live: HerdrAgent | undefined, now: number, inflightCount: number): string | null {
     const hb = this.company.config.heartbeat;
     if (s.queue.length === 0) return 'empty queue';
+    if (!agent.enabled) return 'switched off';
     if (s.paused) return 'paused';
     if (s.inflight) return 'run in progress';
     if (!live) return 'not running';
@@ -300,7 +302,49 @@ export class Daemon {
     log(`${agent.slug}: wake ${runId} -> ${items.map((i) => i.key).join(', ')}`);
   }
 
+  /** Pick up edits to fabrik.yaml and agent files (gear, models, switched-off agents) without a daemon restart. */
+  private reloadCompany(): void {
+    try {
+      this.company = loadCompany(this.company.root);
+      this.configError = false;
+    } catch (err) {
+      if (!this.configError) log(`keeping the previous configuration: ${(err as Error).message}`);
+      this.configError = true;
+    }
+  }
+
+  /**
+   * Restart idle agents whose launch settings changed (model, effort, gear), and quit idle agents
+   * that were switched off. At most one per tick, so a gear change rolls through the company.
+   */
+  async maintainAgents(located: Map<string, HerdrAgent | undefined>): Promise<void> {
+    const state = loadState(this.company);
+    for (const agent of this.company.agents) {
+      const s = state.agents[agent.slug]!;
+      const live = located.get(agent.slug);
+      if (!adapterFor(agent).supported || !live || s.inflight || (live.agent_status !== 'idle' && live.agent_status !== 'done')) continue;
+      if (!agent.enabled) {
+        if (await exitHarness(this.herdr, this.company, agent, live)) log(`${agent.slug}: switched off, harness closed`);
+        else this.escalate(agent, 'is switched off but did not quit; quit it in its tab');
+        return;
+      }
+      const sig = launchSignature(agent, this.company);
+      if (s.launchSig === sig) continue;
+      if (s.launchSig === null) { await withState(this.company, (st) => { st.agents[agent.slug]!.launchSig = sig; }); continue; }
+      log(`${agent.slug}: new launch settings, restarting`);
+      const trouble = await restartAgent(this.herdr, this.company, agent, live);
+      if (trouble) {
+        await withState(this.company, (st) => { st.agents[agent.slug]!.paused = true; });
+        this.escalate(agent, `${trouble} (paused)`);
+      } else {
+        logEvent(this.company, { type: 'restarted', agent: agent.slug });
+      }
+      return;
+    }
+  }
+
   async tick(): Promise<void> {
+    this.reloadCompany();
     const now = Date.now();
     let live: HerdrAgent[];
     try {
@@ -331,6 +375,7 @@ export class Daemon {
       }
     }
 
+    const located = new Map<string, HerdrAgent | undefined>();
     await withState(this.company, async (state) => {
       // `fabrik ask-human` may have registered questions since the snapshot was read.
       state.plane = { ...snapshot.plane, askHuman: { ...snapshot.plane.askHuman, ...state.plane.askHuman } };
@@ -342,7 +387,6 @@ export class Daemon {
         logEvent(this.company, { type: 'wake_queued', ...ev });
       }
       // herdr can drop an agent's name (seen after a codex /new); find it by pane and rename it.
-      const located = new Map<string, HerdrAgent | undefined>();
       for (const agent of this.company.agents) {
         const s = state.agents[agent.slug]!;
         located.set(agent.slug, await locateAgent(this.herdr, this.company, agent, live, s.paneId).catch(() => undefined));
@@ -370,6 +414,7 @@ export class Daemon {
       }
     });
     await this.closeAnswered();
+    await this.maintainAgents(located);
   }
 
   async run(once = false): Promise<void> {

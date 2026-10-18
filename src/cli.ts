@@ -144,6 +144,8 @@ async function main(argv: string[]): Promise<number> {
       if (!o['dry-run']) registerCompany(c);
       if (o['dry-run']) out(`would start: ${r.wouldStart.join(', ') || '-'} · already running: ${r.existing.join(', ') || '-'}`);
       else out(`started: ${r.started.join(', ') || '-'} · already running: ${r.existing.join(', ') || '-'} · introduced: ${r.introduced.join(', ') || '-'}`);
+      if (r.restarted.length) out(`restarted with new settings: ${r.restarted.join(', ')}`);
+      if (r.stopped.length) out(`stopped (switched off): ${r.stopped.join(', ')}`);
       for (const s of r.skipped) out(`skipped ${s.agent}: ${s.reason}`);
       for (const n of r.needsAttention) out(`⚠ ${n.agent}: ${n.reason}`);
       for (const n of r.orphans) out(`⚠ ${n} runs in the company workspace but is not in the org (close its tab if unwanted)`);

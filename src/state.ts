@@ -31,6 +31,8 @@ export interface AgentState {
   lastTimerCheck: number;
   inflight: InflightRun | null;
   queue: WakeItem[];
+  /** Launch settings the running harness was started with; a change triggers a restart when idle. */
+  launchSig: string | null;
 }
 
 export interface IssueSnap {
@@ -59,7 +61,7 @@ export interface CompanyState {
 export function emptyAgentState(): AgentState {
   return {
     paneId: null, tabId: null, introduced: false, paused: false, runsDate: '', runsToday: 0,
-    runsSinceReset: 0, failures: 0, lastRunEnd: 0, lastTimerCheck: 0, inflight: null, queue: [],
+    runsSinceReset: 0, failures: 0, lastRunEnd: 0, lastTimerCheck: 0, inflight: null, queue: [], launchSig: null,
   };
 }
 

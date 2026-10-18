@@ -1,6 +1,9 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { apply } from '../src/apply.ts';
+import { loadCompany } from '../src/company.ts';
+import { Daemon } from '../src/daemon.ts';
+import { setAgentFields } from '../src/edit.ts';
 import type { Herdr } from '../src/herdr.ts';
 import { loadState, withState } from '../src/state.ts';
 import { FakeHerdr, makeCompany } from './helpers.ts';
@@ -81,4 +84,52 @@ test('apply adopts an unnamed agent in the pane it last used', async () => {
   assert.deepEqual(r.existing, ['ada', 'cody']);
   assert.deepEqual(herdr.started, [], 'no second codex in the same pane');
   assert.deepEqual(herdr.renames, [{ target: unnamed.pane_id, name: 'cody' }]);
+});
+
+test('new launch settings restart idle agents; busy agents keep running until idle', async () => {
+  const company = makeCompany();
+  const herdr = new FakeHerdr();
+  herdr.workOnPrompt = true;
+  await run(company, herdr);
+  for (const a of herdr.live) a.agent_status = 'idle';
+
+  setAgentFields(company, 'cody', { model: 'gpt-6-sol' });
+  herdr.find('ada')!.agent_status = 'working';
+  setAgentFields(company, 'ada', { effort: 'high' });
+  const r = await run(loadCompany(company.root), herdr);
+  assert.deepEqual(r.restarted, ['cody']);
+  assert.ok(r.existing.includes('ada'), 'ada is busy: restarted later');
+  assert.equal(herdr.prompts.filter((p) => p.name === 'cody' && p.text === '/exit').length, 1);
+  assert.deepEqual(herdr.started, ['ada', 'cody', 'cody']);
+  assert.ok(loadState(company).agents.cody!.launchSig!.includes('gpt-6-sol'));
+});
+
+test('switching an agent off quits its harness once idle', async () => {
+  const company = makeCompany();
+  const herdr = new FakeHerdr();
+  herdr.workOnPrompt = true;
+  await run(company, herdr);
+  for (const a of herdr.live) a.agent_status = 'idle';
+  setAgentFields(company, 'cody', { enabled: false });
+  const r = await run(loadCompany(company.root), herdr);
+  assert.deepEqual(r.stopped, ['cody']);
+  assert.equal(herdr.find('cody'), undefined);
+});
+
+test('the daemon rolls a settings change through idle agents', async () => {
+  const company = makeCompany();
+  const herdr = new FakeHerdr();
+  herdr.workOnPrompt = true;
+  await run(company, herdr);
+  for (const a of herdr.live) a.agent_status = 'idle';
+  const d = new Daemon(company);
+  d.herdr = herdr as unknown as Daemon['herdr'];
+  await d.tick();
+  assert.deepEqual(herdr.started, ['ada', 'cody'], 'nothing changed, nothing restarted');
+
+  setAgentFields(company, 'ada', { model: 'sonnet' });
+  setAgentFields(company, 'cody', { model: 'gpt-6-sol' });
+  await d.tick();
+  await d.tick();
+  assert.deepEqual(herdr.started, ['ada', 'cody', 'ada', 'cody'], 'one restart per tick, both done after two');
 });

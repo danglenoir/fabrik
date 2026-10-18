@@ -21,6 +21,8 @@ export interface HarnessAdapter {
   resetCommand: string;
   /** Keys that interrupt the current turn without leaving the harness. */
   interruptKeys: string[];
+  /** Command that quits the harness back to the shell. */
+  exitCommand: string;
   /** Known popups herdr may report as idle. Checked on screen before every wake. */
   dialogs: Dialog[];
   /** The folder-trust prompt shown on first start in a new directory. */
@@ -74,6 +76,7 @@ const claude: HarnessAdapter = {
   },
   resetCommand: '/clear',
   interruptKeys: ['esc'],
+  exitCommand: '/exit',
   dialogs: [
     { name: 'auto-mode-tip', pattern: /Teach auto mode about your environment/i, keys: ['esc'] },
     { name: 'external-imports', pattern: /Allow external CLAUDE\.md file imports/i, keys: null },
@@ -104,6 +107,7 @@ const codex: HarnessAdapter = {
   },
   resetCommand: '/new',
   interruptKeys: ['esc'],
+  exitCommand: '/exit',
   dialogs: [
     { name: 'update-prompt', pattern: /Update available[\s\S]*Skip until next version/i, keys: ['down', 'enter'] }, // "2. Skip"
     // `/new` in a git repository (every company is one) asks where to run; Enter keeps the current worktree.
@@ -136,6 +140,7 @@ const grok: HarnessAdapter = {
   },
   resetCommand: '/new',
   interruptKeys: ['esc'],
+  exitCommand: '/exit',
   dialogs: [],
   trust: { name: 'folder-trust', pattern: /trust this folder|Do you trust/i, keys: null },
   async listModels() {
@@ -153,6 +158,7 @@ const hermes: HarnessAdapter = {
   },
   resetCommand: '/new now',
   interruptKeys: ['esc'],
+  exitCommand: '/exit',
   dialogs: [],
   trust: null,
   async listModels() {
@@ -178,6 +184,13 @@ export function agentEnv(agent: AgentDef, company: Company): Record<string, stri
     env.FABRIK_OBSIDIAN_DIR = join(o.vault, o.folder);
   }
   return { ...env, ...ADAPTERS[agent.harness].env?.(agent, company) };
+}
+
+/** Everything a running harness was started with. When it changes, the agent needs a restart. */
+export function launchSignature(agent: AgentDef, company: Company): string {
+  const adapter = ADAPTERS[agent.harness];
+  if (!adapter.supported) return '';
+  return JSON.stringify([agent.harness, adapter.launchArgs(agent, company), agentEnv(agent, company)]);
 }
 
 /** A POSIX `export` line for `env` (also understood by zsh and fish). The leading space keeps it out of shell history where configured. */

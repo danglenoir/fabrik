@@ -82,6 +82,7 @@ export class FakeHerdr {
   async read(target: string) { return this.screens[target] ?? this.screens[this.find(target)?.name ?? ''] ?? ''; }
   async prompt(name: string, text: string) {
     this.prompts.push({ name, text });
+    if (text === '/exit') { this.live = this.live.filter((a) => a !== this.find(name)); return {}; }
     if (this.swallow[name]) { this.swallow[name]--; return {}; }
     const a = this.find(name);
     if (a && this.workOnPrompt) a.agent_status = 'working';
