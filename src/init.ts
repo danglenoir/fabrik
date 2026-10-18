@@ -153,7 +153,7 @@ export function initCompany(opts: InitOptions): Company {
   const agentsRaw: Record<string, any>[] = Array.isArray(raw.agents) ? raw.agents : [];
   if (agentsRaw.length === 0) throw new FabrikError('invalid_proposal', 'proposal has no agents');
 
-  const configRaw = { company: raw.company, herdr: raw.herdr, plane: raw.plane, obsidian: raw.obsidian, heartbeat: raw.heartbeat, router: raw.router, inherit_user_config: raw.inherit_user_config };
+  const configRaw = { company: raw.company, herdr: raw.herdr, plane: raw.plane, obsidian: raw.obsidian, heartbeat: raw.heartbeat, router: raw.router, isolate: raw.isolate };
   const config = normalizeConfig(configRaw);
   const dir = resolve(opts.dir ?? defaultCompanyDir(config.company.slug));
   if (dir === homedir() || dir === '/') throw new FabrikError('unsafe_dir', `refusing to use ${dir} as a company directory`);

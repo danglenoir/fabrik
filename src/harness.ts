@@ -64,8 +64,8 @@ const claude: HarnessAdapter = {
     if (agent.effort) args.push('--effort', agent.effort);
     // The fabrik CLI is the agent's own toolbelt: never ask before running it.
     args.push('--allowedTools', 'Bash(fabrik *)');
-    // Skip the human's ~/.claude/settings.json: its hooks, plugins and status line are not the company's.
-    if (!company.config.inheritUserConfig) args.push('--setting-sources', 'project,local');
+    // isolate: true skips the human's ~/.claude/settings.json (hooks, plugins, status line, user skills).
+    if (company.config.isolate) args.push('--setting-sources', 'project,local');
     args.push('--append-system-prompt', identityLine(agent, company));
     return args;
   },
@@ -106,8 +106,8 @@ const codex: HarnessAdapter = {
   ],
   trust: { name: 'folder-trust', pattern: /Do you trust the contents of this directory|trust this (folder|directory)/i, keys: null },
   env(_agent, company): Record<string, string> {
-    // Its own CODEX_HOME keeps the human's global ~/.codex/AGENTS.md out of the agent.
-    return company.config.inheritUserConfig ? {} : { CODEX_HOME: codexHome(company) };
+    // The human's ~/.codex minus its global AGENTS.md, which would compete with the company's instructions.
+    return { CODEX_HOME: codexHome(company) };
   },
   async listModels() {
     const out = await exec('codex', ['debug', 'models']);

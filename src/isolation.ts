@@ -5,10 +5,11 @@ import type { Company } from './company.ts';
 import { fabrikConfigDir } from './util.ts';
 
 /**
- * Agents should follow the company's instructions, not the human's personal harness setup
- * (global AGENTS.md, Claude Code hooks, plugins and status line). Claude is started with
- * `--setting-sources project,local`; Codex gets its own CODEX_HOME. `inherit_user_config: true`
- * in fabrik.yaml turns this off.
+ * Agents work in the human's own environment: their skills, memory, hooks, plugins and MCP
+ * servers. Only the global instruction files stay out, because they compete with the company's
+ * AGENTS.md: ~/AGENTS.md is shadowed by the company CLAUDE.md, and Codex gets a CODEX_HOME that
+ * mirrors ~/.codex without its AGENTS.md. `isolate: true` in fabrik.yaml also starts Claude with
+ * `--setting-sources project,local` (no personal settings, hooks, plugins or user skills).
  */
 
 const SKILL_SOURCE = resolve(import.meta.dirname, '..', 'skills', 'fabrik', 'SKILL.md');

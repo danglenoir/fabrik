@@ -176,21 +176,18 @@ export async function doctor(company: Company): Promise<Check[]> {
   }
 
   const uses = (h: string) => company.agents.some((a) => a.enabled && a.harness === h);
-  const inherit = company.config.inheritUserConfig;
+  const isolate = company.config.isolate;
   if (existsSync(join(homedir(), 'AGENTS.md'))) {
     const shim = existsSync(join(company.root, 'CLAUDE.md'));
     add(shim ? 'ok' : 'warn', shim ? '~/AGENTS.md is kept out of Claude agents by the company CLAUDE.md' : '~/AGENTS.md will reach Claude agents (company CLAUDE.md missing)');
   }
   if (uses('claude')) {
-    add(inherit ? 'warn' : 'ok', inherit ? 'Claude agents load your personal Claude Code settings, hooks and plugins (inherit_user_config: true)' : 'Claude agents ignore your personal Claude Code settings, hooks and plugins');
+    add('ok', isolate ? 'Claude agents run without your personal Claude Code settings, hooks, plugins and skills (isolate: true)' : 'Claude agents use your Claude Code setup: skills, memory, hooks, plugins');
   }
   if (uses('codex')) {
-    const globalAgents = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'AGENTS.md');
-    const hasGlobal = existsSync(globalAgents) && readFileSync(globalAgents, 'utf8').trim() !== '';
-    if (inherit) add(hasGlobal ? 'warn' : 'ok', hasGlobal ? `Codex agents also follow your global ${globalAgents} (inherit_user_config: true)` : 'Codex agents use your CODEX_HOME');
-    else if (!existsSync(codexHome(company))) add('warn', `Codex agents need their own CODEX_HOME; run fabrik apply to create ${codexHome(company)}`);
+    if (!existsSync(codexHome(company))) add('warn', `Codex agents need their CODEX_HOME; run fabrik apply to create ${codexHome(company)}`);
     else if (existsSync(join(codexHome(company), 'auth.json')) && !codexHomeLinks(company, 'auth.json')) add('warn', `${join(codexHome(company), 'auth.json')} is a copy, not a link to your Codex login; delete it and run fabrik apply`);
-    else add('ok', `Codex agents use their own CODEX_HOME without your global AGENTS.md (${codexHome(company)})`);
+    else add('ok', `Codex agents use your ~/.codex without its global AGENTS.md (${codexHome(company)})`);
   }
 
   const p = company.config.plane;

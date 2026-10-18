@@ -27,16 +27,16 @@ test('the company CODEX_HOME mirrors ~/.codex without the global AGENTS.md', () 
   assert.throws(() => lstatSync(join(home, 'config.toml')), 'broken links are removed');
 });
 
-test('agents ignore personal harness config unless the company opts in', () => {
+test('agents use the human\'s setup by default; isolate: true opts out', () => {
   const company = makeCompany();
   const ada = company.agents.find((a) => a.slug === 'ada')!;
   const cody = company.agents.find((a) => a.slug === 'cody')!;
-  assert.ok(ADAPTERS.claude.launchArgs(ada, company).join(' ').includes('--setting-sources project,local'));
-  assert.equal(agentEnv(cody, company).CODEX_HOME, codexHome(company));
+  assert.ok(!ADAPTERS.claude.launchArgs(ada, company).includes('--setting-sources'), 'personal Claude settings, hooks and skills load');
+  assert.equal(agentEnv(cody, company).CODEX_HOME, codexHome(company), 'Codex always skips the global AGENTS.md');
 
-  const inheriting = makeCompany({ inherit_user_config: true });
-  assert.ok(!ADAPTERS.claude.launchArgs(ada, inheriting).includes('--setting-sources'));
-  assert.equal(agentEnv(cody, inheriting).CODEX_HOME, undefined);
+  const isolated = makeCompany({ isolate: true });
+  assert.ok(ADAPTERS.claude.launchArgs(ada, isolated).join(' ').includes('--setting-sources project,local'));
+  assert.equal(agentEnv(cody, isolated).CODEX_HOME, codexHome(isolated));
 });
 
 test('the heartbeat skill ships inside the company for every harness', () => {

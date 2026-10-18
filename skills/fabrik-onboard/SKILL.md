@@ -95,9 +95,9 @@ Then:
 3. `fabrik doctor --company ~/fabrik/<slug>` and fix what it reports.
 4. Only after an explicit yes: `fabrik apply --company ~/fabrik/<slug>`. A trust dialog for the new
    folder may appear; ask the user before passing `--accept-trust`.
-5. Offer `fabrik service install` to start the heartbeat. Agents ignore the user's personal
-   harness setup (Claude Code hooks and plugins, the global `~/.codex/AGENTS.md`); mention
-   `inherit_user_config: true` in `fabrik.yaml` if the user wants them to inherit it. Explain how work reaches agents: add the
+5. Offer `fabrik service install` to start the heartbeat. Agents use the user's own skills,
+   memory, hooks and plugins; only the global instruction files stay out. Mention `isolate: true`
+   in `fabrik.yaml` for agents without the user's personal Claude Code setup. Explain how work reaches agents: add the
    Plane label `agent:<slug>` to a ticket, write `@<slug>` in a comment, drop a note with
    `to: <slug>` into `Fabrik/inbox/`, or run `fabrik wake <slug>`.
 

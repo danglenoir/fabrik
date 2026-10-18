@@ -50,8 +50,11 @@ export interface CompanyConfig {
     rotateAfterRuns: number;
   };
   router: { unassigned: string };
-  /** Let agents load the human's personal harness config (global AGENTS.md, Claude hooks and plugins). */
-  inheritUserConfig: boolean;
+  /**
+   * Run agents without the human's personal harness config (Claude Code settings, hooks, plugins,
+   * user skills). Off by default: agents are meant to work in the human's own environment.
+   */
+  isolate: boolean;
 }
 
 export interface Company {
@@ -140,7 +143,7 @@ export function normalizeConfig(raw: Raw): CompanyConfig {
       rotateAfterRuns: num(hb.rotate_after_runs, 15),
     },
     router: { unassigned: str(raw.router?.unassigned, 'router.unassigned', '') },
-    inheritUserConfig: raw.inherit_user_config === true,
+    isolate: raw.isolate === true,
   };
 }
 

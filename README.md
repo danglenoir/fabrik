@@ -90,9 +90,9 @@ fabrik keeps the idea and drops the rest:
 - **Humans stay in charge:** money, outbound mail, credentials and new hires go through
   `fabrik ask-human`, which opens a Plane ticket labelled `human` and waits for your answer. Once
   the agent has acted on it, fabrik closes the question.
-- **Agents work for the company, not for your dotfiles:** they ignore your personal Claude Code
-  hooks and plugins and your global `~/.codex/AGENTS.md`, and get the company's paths as
-  environment variables.
+- **Your environment, your agents:** agents run with your own skills, memory, hooks, plugins and
+  MCP servers, and get the company's paths as environment variables. Only your global instruction
+  files (`~/AGENTS.md`, `~/.codex/AGENTS.md`) stay out, so they never compete with the company's.
 - **Survives restarts:** herdr resumes the agents and fabrik re-applies their roles and models.
 
 ## Requirements
@@ -179,7 +179,7 @@ plane:     { url: http://plane.lan, workspace: acme, projects: [ACME], key_env: 
 obsidian:  { vault: /path/to/vault, folder: Fabrik }
 heartbeat: { tick: 10s, timer: off, max_concurrent: 2, max_runs_per_day: 20, cooldown: 60s, rotate_after_runs: 15 }
 router:    { unassigned: ada }
-inherit_user_config: false   # true: agents also load your personal harness config (see below)
+isolate: false     # true: agents skip your personal Claude Code settings, hooks, plugins and skills
 ```
 
 ```markdown
@@ -212,11 +212,13 @@ You are Cody, the Engineer of Acme Studio. …
   resumes after a restart; the `fabrik` CLI works without them.
 - **The heartbeat skill** in the company folder (`.claude/skills/fabrik`, `.agents/skills/fabrik`),
   refreshed by every `fabrik apply`.
-- **No personal config:** Claude agents start with `--setting-sources project,local`, so your own
-  Claude Code hooks, plugins and status line stay out. Codex agents use
-  `~/.config/fabrik/codex-home/<company>` as `CODEX_HOME`: symlinks to your `~/.codex` (login,
-  config, sessions) without your global `AGENTS.md`. Set `inherit_user_config: true` to turn this
-  off.
+- **Your setup, minus global instructions:** agents load your skills, memory, hooks, plugins and
+  MCP servers like any session you start yourself. Your global instruction files stay out:
+  `~/AGENTS.md` is shadowed by the company's `CLAUDE.md`, and Codex agents use
+  `~/.config/fabrik/codex-home/<company>` as `CODEX_HOME`, which links to everything in your
+  `~/.codex` (login, config, sessions, skills) except `AGENTS.md`.
+- **`isolate: true`** additionally starts Claude agents with `--setting-sources project,local`:
+  none of your personal Claude Code settings, hooks, plugins or user skills.
 
 ## CLI
 
@@ -251,7 +253,8 @@ open sub-tasks cannot be set to done without `--force`.
 - No permission bypass by default. `high` autonomy has to be set by hand, and `fabrik doctor` warns about it.
 - Secrets live in `~/.config/fabrik/<company>.env` (mode 0600), never in git or in prompts.
 - Ticket text, comments and notes are treated as data, not instructions.
-- Agents run without your personal harness hooks, plugins and global instructions.
+- Your global instruction files never reach agents; `isolate: true` keeps your personal Claude
+  Code settings, hooks and plugins out as well.
 - fabrik only touches its own herdr workspace and its own folder in your vault.
 
 ## Development

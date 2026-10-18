@@ -158,7 +158,7 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
 
   if (!dryRun) {
     installCompanySkill(company); // keep the project copy of the heartbeat skill current
-    if (!company.config.inheritUserConfig && company.agents.some((a) => a.enabled && a.harness === 'codex')) syncCodexHome(company);
+    if (company.agents.some((a) => a.enabled && a.harness === 'codex')) syncCodexHome(company);
   }
 
   const live = await herdr.agents();

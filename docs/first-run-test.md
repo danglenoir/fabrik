@@ -27,7 +27,7 @@ after onboarding: the CEO's first task *is* the test.
 | Plane: labels, states (Todo/In Progress/In Review/Blocked/Done), comments, sub-tasks, `human` tickets | throughout |
 | Obsidian: journals, status cards, `attention.md`, inbox notes, `status: done` ignored | §4, §6 |
 | herdr: agents pane roles, plugin status popup, plugin wake action, session restart + resume, metadata re-apply | §5, §7 |
-| Safety: ask-human gate, open sub-tasks block `done`, injected instruction treated as data, no personal harness config | §3, §4.6, §6 |
+| Safety: ask-human gate, open sub-tasks block `done`, injected instruction treated as data, global instruction files kept out | §3, §4.6, §6 |
 | Loop guard (agents waking each other), human questions closed automatically | §4 |
 | Pause / resume | §5 |
 
@@ -117,8 +117,8 @@ there, then run `fabrik apply` again. A Codex update prompt is skipped for you.
 - [ ] herdr's agents pane shows `Ada (CEO)`, `Cody (Engineer)`, `Wren (Ops)`.
 - [ ] Each agent replied to its `[fabrik intro]` with one short paragraph naming its role, and
   `apply` printed `introduced: ada, cody, wren`.
-- [ ] ada's status bar shows none of your personal Claude Code plugins or hooks, and `fabrik doctor`
-  says Codex agents use their own CODEX_HOME.
+- [ ] ada's tab shows your usual Claude Code setup (status line, plugins), and `fabrik doctor` says
+  Codex agents use your `~/.codex` without its global `AGENTS.md`.
 - [ ] A second `fabrik apply` prints `already running: ada, cody, wren` and sends nothing.
 - [ ] `fabrik status` lists all three as idle or done, runs 0.
 
