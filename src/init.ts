@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
-import { loadCompany, normalizeAgent, normalizeConfig, renderOrg, validateCompany } from './company.ts';
+import { autonomyLabel, effectiveAutonomy, GEARS, loadCompany, normalizeAgent, normalizeConfig, renderOrg, validateCompany } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
 import { installCompanySkill } from './isolation.ts';
 import { ensureVaultFolder } from './obsidian.ts';
@@ -14,7 +14,8 @@ import { FabrikError, formatDuration, writeFileAtomic } from './util.ts';
  *   company: {slug, name, human, mission, goal, constraints, done}
  *   context: {stack, inventory, processes, channels}        # free-form, copied into COMPANY.md
  *   herdr/plane/obsidian/heartbeat/router: same shape as fabrik.yaml
- *   agents: [{slug, name, title, reports_to, harness, model, effort, autonomy, timer, remit}]
+ *   gear: steady | turbo                                     # optional, default steady
+ *   agents: [{slug, name, title, reports_to, harness, model, effort, autonomy?, timer, remit, enabled?}]
  */
 export interface InitOptions {
   proposalPath: string;
@@ -40,7 +41,8 @@ export function agentFile(agent: Record<string, unknown>): string {
     harness: agent.harness,
     model: agent.model,
     effort: agent.effort ?? null,
-    autonomy: agent.autonomy ?? 'low',
+    // Left out, the agent follows the company gear.
+    ...(agent.autonomy ? { autonomy: agent.autonomy } : {}),
     enabled: agent.enabled ?? true,
     heartbeat: { timer: agent.timer ?? 'off' },
   };
@@ -130,9 +132,12 @@ ${renderOrg(company).split('\n').slice(4).join('\n')}
 - Timers: ${hb.timerMs === null ? 'off by default' : `every ${formatDuration(hb.timerMs)}`} (per-agent overrides in the table), and they only fire when there is open work.
 - Caps: ${hb.maxRunsPerDay} runs per agent per day, ${hb.maxConcurrent} agents working at once, ${formatDuration(hb.cooldownMs)} cooldown, context reset every ${hb.rotateAfterRuns} runs.
 
-## Permissions
+## Gear and permissions
 
-${company.agents.map((a) => `- ${a.slug}: autonomy **${a.autonomy}**${a.autonomy === 'high' ? ' ⚠ runs without permission prompts' : ''}`).join('\n')}
+Gear **${company.config.gear}**: ${GEARS[company.config.gear].summary}. Change it any time with
+\`fabrik gear steady|turbo\` or \`fabrik review\`.
+
+${company.agents.map((a) => `- ${a.slug}: autonomy **${autonomyLabel(company, a)}**${effectiveAutonomy(company, a) === 'high' ? ' ⚠ runs without permission prompts' : ''}`).join('\n')}
 
 ## Next steps
 
@@ -153,7 +158,7 @@ export function initCompany(opts: InitOptions): Company {
   const agentsRaw: Record<string, any>[] = Array.isArray(raw.agents) ? raw.agents : [];
   if (agentsRaw.length === 0) throw new FabrikError('invalid_proposal', 'proposal has no agents');
 
-  const configRaw = { company: raw.company, herdr: raw.herdr, plane: raw.plane, obsidian: raw.obsidian, heartbeat: raw.heartbeat, router: raw.router, isolate: raw.isolate };
+  const configRaw = { company: raw.company, gear: raw.gear, herdr: raw.herdr, plane: raw.plane, obsidian: raw.obsidian, heartbeat: raw.heartbeat, router: raw.router, isolate: raw.isolate };
   const config = normalizeConfig(configRaw);
   const dir = resolve(opts.dir ?? defaultCompanyDir(config.company.slug));
   if (dir === homedir() || dir === '/') throw new FabrikError('unsafe_dir', `refusing to use ${dir} as a company directory`);

@@ -2,7 +2,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { loadCompany } from './company.ts';
+import { effectiveAutonomy, loadCompany } from './company.ts';
 import type { Company } from './company.ts';
 import { daemonPid } from './daemon.ts';
 import { ADAPTERS, adapterFor } from './harness.ts';
@@ -172,7 +172,7 @@ export async function doctor(company: Company): Promise<Check[]> {
     const models = await adapterFor(a).listModels();
     const ok = models === null || models.includes(a.model) || (a.harness === 'claude' && a.model.startsWith('claude-'));
     add(ok ? 'ok' : 'fail', `${a.slug}: model ${a.harness}/${a.model}${ok ? '' : ` not offered (have: ${models!.join(', ')})`}`);
-    if (a.autonomy === 'high') add('warn', `${a.slug}: autonomy high runs without permission prompts`);
+    if (effectiveAutonomy(company, a) === 'high') add('warn', `${a.slug}: autonomy high runs without permission prompts`);
   }
 
   const uses = (h: string) => company.agents.some((a) => a.enabled && a.harness === h);

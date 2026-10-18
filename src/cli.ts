@@ -4,7 +4,8 @@ import { parseArgs } from 'node:util';
 import { askHuman, inbox, note, requireAgent, runDone, taskClaim, taskComment, taskCreate, taskRelease, taskShow, taskState, whoami } from './agent.ts';
 import { apply } from './apply.ts';
 import { pauseAgent, stopAgent } from './control.ts';
-import { herdrName, loadCompany, renderOrg } from './company.ts';
+import { setGear } from './edit.ts';
+import { GEARS, herdrName, loadCompany, renderOrg } from './company.ts';
 import type { Company } from './company.ts';
 import { Daemon, daemonPid, wakeDir } from './daemon.ts';
 import { ADAPTERS } from './harness.ts';
@@ -27,6 +28,7 @@ Setup
   fabrik shim install                                     put \`fabrik\` on PATH (~/.local/bin)
 
 Operate
+  fabrik gear [steady|turbo]  show or change how hard the company runs
   fabrik status | org | models [harness]
   fabrik wake <slug> [--reason TEXT] [--key KEY]
   fabrik stop <slug>          interrupt its turn, pause it, keep the work queued
@@ -173,6 +175,14 @@ async function main(argv: string[]): Promise<number> {
       if (sub === 'stop-focused') { out(await stopFocused()); return 0; }
       throw new FabrikError('usage', 'fabrik hook startup|status-pane|wake-focused|stop-focused');
 
+    case 'gear': {
+      const c = company();
+      if (!sub) { out(`gear ${c.config.gear}: ${GEARS[c.config.gear].summary}`); return 0; }
+      const gear = setGear(c, sub);
+      out(`gear ${gear}: ${GEARS[gear].summary}`);
+      out('agents restart with the new settings once they are idle (the daemon does this; or run fabrik apply)');
+      return 0;
+    }
     case 'status': out(renderTable(await companyStatus(company()))); return 0;
     case 'org': out(renderOrg(company())); return 0;
     case 'models': {

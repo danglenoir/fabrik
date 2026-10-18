@@ -1,5 +1,5 @@
 import { claimHolder, dropClaim, takeClaim } from './claims.ts';
-import { agentForCwd } from './company.ts';
+import { agentForCwd, autonomyLabel } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
 import { appendAttention, appendJournal, scanInbox } from './obsidian.ts';
 import { escapeHtml, Plane, stripHtml, textToHtml } from './plane.ts';
@@ -175,7 +175,7 @@ export function whoami(company: Company, agent: AgentDef): string {
   const label = (company.config.plane?.agentLabelPrefix ?? 'agent:') + agent.slug;
   return [
     `${agent.name} — ${agent.title} at ${company.config.company.name}`,
-    `slug: ${agent.slug} · harness: ${agent.harness}/${agent.model} · autonomy: ${agent.autonomy}`,
+    `slug: ${agent.slug} · harness: ${agent.harness}/${agent.model} · autonomy: ${autonomyLabel(company, agent)} · company gear: ${company.config.gear}`,
     `reports to: ${agent.reportsTo ?? company.config.company.human + ' (human)'}`,
     `direct reports: ${reports.join(', ') || 'none'}`,
     `your tickets carry the Plane label "${label}"`,

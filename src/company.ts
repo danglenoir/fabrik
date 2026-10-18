@@ -7,6 +7,23 @@ export const HARNESSES = ['claude', 'codex', 'grok', 'hermes'] as const;
 export type Harness = (typeof HARNESSES)[number];
 export const AUTONOMY = ['low', 'medium', 'high'] as const;
 export type Autonomy = (typeof AUTONOMY)[number];
+export const GEAR_NAMES = ['steady', 'turbo'] as const;
+export type Gear = (typeof GEAR_NAMES)[number];
+
+/**
+ * A gear sets how hard the company runs: permissions for agents without their own `autonomy`,
+ * and the default caps. Explicit heartbeat values in fabrik.yaml win over the gear.
+ */
+export const GEARS: Record<Gear, { autonomy: Autonomy; maxConcurrent: number; maxRunsPerDay: number; summary: string }> = {
+  steady: {
+    autonomy: 'low', maxConcurrent: 2, maxRunsPerDay: 15,
+    summary: 'protects your tokens and limits: agents ask before edits and commands, 2 work at once, 15 runs per agent per day',
+  },
+  turbo: {
+    autonomy: 'medium', maxConcurrent: 4, maxRunsPerDay: 60,
+    summary: 'more autonomous and faster: no prompts inside the sandbox, 4 work at once, 60 runs per agent per day; uses more tokens',
+  },
+};
 
 export const AGENT_NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
 export const COMPANY_SLUG_RE = /^[a-z][a-z0-9-]{0,15}$/;
@@ -19,7 +36,8 @@ export interface AgentDef {
   harness: Harness;
   model: string;
   effort: string | null;
-  autonomy: Autonomy;
+  /** null: follow the company gear. */
+  autonomy: Autonomy | null;
   enabled: boolean;
   timerMs: number | null;
   instructions: string;
@@ -28,6 +46,7 @@ export interface AgentDef {
 
 export interface CompanyConfig {
   company: { slug: string; name: string; human: string };
+  gear: Gear;
   herdr: { session: string; workspace: string; agentPrefix: string; startTimeoutMs: number };
   plane: {
     url: string;
@@ -112,8 +131,11 @@ export function normalizeConfig(raw: Raw): CompanyConfig {
   const hb = raw.heartbeat ?? {};
   const slug = str(c.slug, 'company.slug');
   if (!COMPANY_SLUG_RE.test(slug)) throw new FabrikError('invalid_config', `company.slug must match ${COMPANY_SLUG_RE}`);
+  const gear = str(raw.gear, 'gear', 'steady') as Gear;
+  if (!GEAR_NAMES.includes(gear)) throw new FabrikError('invalid_config', `gear must be ${GEAR_NAMES.join(' or ')}`);
   return {
     company: { slug, name: str(c.name, 'company.name', slug), human: str(c.human, 'company.human', 'the human') },
+    gear,
     herdr: {
       session: str(h.session, 'herdr.session', 'default'),
       workspace: str(h.workspace, 'herdr.workspace', slug),
@@ -136,8 +158,8 @@ export function normalizeConfig(raw: Raw): CompanyConfig {
     heartbeat: {
       tickMs: dur(hb.tick, '10s'),
       timerMs: parseDuration(hb.timer ?? 'off'),
-      maxConcurrent: num(hb.max_concurrent, 2),
-      maxRunsPerDay: num(hb.max_runs_per_day, 20),
+      maxConcurrent: num(hb.max_concurrent, GEARS[gear].maxConcurrent),
+      maxRunsPerDay: num(hb.max_runs_per_day, GEARS[gear].maxRunsPerDay),
       cooldownMs: dur(hb.cooldown, '60s'),
       runTimeoutMs: dur(hb.run_timeout, '45m'),
       rotateAfterRuns: num(hb.rotate_after_runs, 15),
@@ -152,8 +174,8 @@ export function normalizeAgent(data: Raw, body: string, dir: string): AgentDef {
   if (!AGENT_NAME_RE.test(slug)) throw new FabrikError('invalid_agent', `agent slug "${slug}" must match ${AGENT_NAME_RE}`);
   const harness = str(data.harness, `${slug}.harness`) as Harness;
   if (!HARNESSES.includes(harness)) throw new FabrikError('invalid_agent', `${slug}: unknown harness "${harness}" (${HARNESSES.join(', ')})`);
-  const autonomy = str(data.autonomy, `${slug}.autonomy`, 'low') as Autonomy;
-  if (!AUTONOMY.includes(autonomy)) throw new FabrikError('invalid_agent', `${slug}: autonomy must be low, medium or high`);
+  const autonomy = data.autonomy === undefined || data.autonomy === null ? null : String(data.autonomy) as Autonomy;
+  if (autonomy !== null && !AUTONOMY.includes(autonomy)) throw new FabrikError('invalid_agent', `${slug}: autonomy must be low, medium or high (or left out to follow the gear)`);
   const reports = data.reports_to ?? data.reportsTo ?? null;
   return {
     name: str(data.name, `${slug}.name`, slug),
@@ -230,6 +252,16 @@ export function agentForCwd(company: Company, cwd = process.cwd()): AgentDef | n
   return company.agents.find((a) => a.slug === slug) ?? null;
 }
 
+/** The agent's own autonomy, or the one its company's gear implies. */
+export function effectiveAutonomy(company: Company, agent: AgentDef): Autonomy {
+  return agent.autonomy ?? GEARS[company.config.gear].autonomy;
+}
+
+/** "low (gear)" when the value comes from the gear, for tables humans read. */
+export function autonomyLabel(company: Company, agent: AgentDef): string {
+  return agent.autonomy ?? `${GEARS[company.config.gear].autonomy} (gear)`;
+}
+
 export function herdrName(company: Company, agent: AgentDef): string {
   return company.config.herdr.agentPrefix + agent.slug;
 }
@@ -248,16 +280,16 @@ export function renderOrg(company: Company): string {
   const tree = (parent: string | null, depth: number): void => {
     for (const a of company.agents.filter((x) => x.reportsTo === parent)) {
       const off = a.enabled ? '' : ' (disabled)';
-      lines.push(`${'  '.repeat(depth)}- **${a.name}** · ${a.title} — ${a.harness}/${a.model}, autonomy ${a.autonomy}${off}`);
+      lines.push(`${'  '.repeat(depth)}- **${a.name}** · ${a.title} — ${a.harness}/${a.model}, autonomy ${autonomyLabel(company, a)}${off}`);
       tree(a.slug, depth + 1);
     }
   };
-  lines.push(`- **${company.config.company.human}** (human)`);
+  lines.push(`- **${company.config.company.human}** (human) · gear **${company.config.gear}**`);
   tree(null, 1);
   lines.push('', '| slug | name | title | reports to | harness | model | effort | autonomy | timer |', '|---|---|---|---|---|---|---|---|---|');
   for (const a of company.agents) {
     const timer = formatDuration(a.timerMs);
-    lines.push(`| ${a.slug} | ${a.name} | ${a.title} | ${a.reportsTo ?? 'human'} | ${a.harness} | ${a.model} | ${a.effort ?? '-'} | ${a.autonomy} | ${timer} |`);
+    lines.push(`| ${a.slug} | ${a.name} | ${a.title} | ${a.reportsTo ?? 'human'} | ${a.harness} | ${a.model} | ${a.effort ?? '-'} | ${autonomyLabel(company, a)} | ${timer} |`);
   }
   return lines.join('\n') + '\n';
 }

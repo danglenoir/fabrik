@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
+import { effectiveAutonomy } from './company.ts';
 import type { AgentDef, Autonomy, Company, Harness } from './company.ts';
 import { codexHome } from './isolation.ts';
 import { FabrikError } from './util.ts';
@@ -60,7 +61,7 @@ const claude: HarnessAdapter = {
   supported: true,
   launchArgs(agent, company) {
     // --add-dir: agents read ../../COMPANY.md, ORG.md and their notes without a permission prompt.
-    const args = ['--model', agent.model, '--permission-mode', CLAUDE_PERMISSION[agent.autonomy], '-n', `${agent.name} (${agent.title})`, '--add-dir', company.root];
+    const args = ['--model', agent.model, '--permission-mode', CLAUDE_PERMISSION[effectiveAutonomy(company, agent)], '-n', `${agent.name} (${agent.title})`, '--add-dir', company.root];
     const o = company.config.obsidian;
     if (o) args.push('--add-dir', join(o.vault, o.folder));
     if (agent.effort) args.push('--effort', agent.effort);
@@ -88,8 +89,8 @@ const codex: HarnessAdapter = {
   supported: true,
   launchArgs(agent, company) {
     // No update prompt at startup: it blocks the pane until a human answers it.
-    const args = ['-m', agent.model, ...CODEX_PERMISSION[agent.autonomy], '-c', 'check_for_update_on_startup=false'];
-    if (agent.autonomy !== 'high') {
+    const args = ['-m', agent.model, ...CODEX_PERMISSION[effectiveAutonomy(company, agent)], '-c', 'check_for_update_on_startup=false'];
+    if (effectiveAutonomy(company, agent) !== 'high') {
       // The workspace-write sandbox only covers the cwd and has no network. fabrik needs to
       // write claims/reports under .fabrik/, journals in the vault, and reach Plane.
       args.push('--add-dir', join(company.root, '.fabrik'));
@@ -128,7 +129,7 @@ const grok: HarnessAdapter = {
   harness: 'grok',
   supported: true,
   launchArgs(agent, company) {
-    const args = ['-m', agent.model, '--permission-mode', GROK_PERMISSION[agent.autonomy], '--allow', 'Bash(fabrik *)'];
+    const args = ['-m', agent.model, '--permission-mode', GROK_PERMISSION[effectiveAutonomy(company, agent)], '--allow', 'Bash(fabrik *)'];
     if (agent.effort) args.push('--reasoning-effort', agent.effort);
     args.push('--rules', identityLine(agent, company));
     return args;

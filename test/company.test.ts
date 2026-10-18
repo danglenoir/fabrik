@@ -3,7 +3,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { stringify } from 'yaml';
-import { agentForCwd, loadCompany, renderOrg } from '../src/company.ts';
+import { agentForCwd, effectiveAutonomy, loadCompany, renderOrg } from '../src/company.ts';
+import { setAgentFields, setGear } from '../src/edit.ts';
 import { ADAPTERS } from '../src/harness.ts';
 import { initCompany } from '../src/init.ts';
 import { formatDuration, localStamp, parseDuration, today } from '../src/util.ts';
@@ -53,7 +54,7 @@ test('init refuses the home directory and existing companies', () => {
 
 test('renderOrg shows the tree and the table', () => {
   const org = renderOrg(makeCompany());
-  assert.match(org, /- \*\*Marton\*\* \(human\)\n  - \*\*Ada\*\* · CEO/);
+  assert.match(org, /- \*\*Marton\*\* \(human\) · gear \*\*steady\*\*\n  - \*\*Ada\*\* · CEO/);
   assert.match(org, /    - \*\*Cody\*\* · Engineer/);
 });
 
@@ -104,4 +105,40 @@ test('human-facing dates use local time', () => {
   const d = new Date(2026, 9, 18, 1, 56); // 01:56 local, which is still the 17th in UTC east of Greenwich
   assert.equal(today(d), '2026-10-18');
   assert.equal(localStamp(d), '2026-10-18 01:56');
+});
+
+test('the gear sets permissions and caps unless the company or the agent overrides them', () => {
+  const steady = makeCompany({ heartbeat: { cooldown: '0s' }, agents: [
+    { slug: 'ada', name: 'Ada', title: 'CEO', reports_to: null, harness: 'claude', model: 'sonnet', remit: 'x' },
+    { slug: 'cody', name: 'Cody', title: 'Engineer', reports_to: 'ada', harness: 'codex', model: 'gpt-6-sol', autonomy: 'high', remit: 'y' },
+  ] });
+  assert.equal(steady.config.gear, 'steady');
+  assert.equal(steady.config.heartbeat.maxConcurrent, 2);
+  const [ada, cody] = steady.agents;
+  assert.equal(ada!.autonomy, null, 'no autonomy written: follows the gear');
+  assert.equal(effectiveAutonomy(steady, ada!), 'low');
+  assert.equal(effectiveAutonomy(steady, cody!), 'high');
+  assert.match(renderOrg(steady), /\| ada \|.*\| low \(gear\) \|/);
+
+  setGear(steady, 'turbo');
+  const turbo = loadCompany(steady.root);
+  assert.equal(turbo.config.gear, 'turbo');
+  assert.equal(turbo.config.heartbeat.maxConcurrent, 4);
+  assert.equal(effectiveAutonomy(turbo, turbo.agents[0]!), 'medium');
+  assert.match(readFileSync(join(steady.root, 'fabrik.yaml'), 'utf8'), /^# fabrik company config/, 'comments survive the edit');
+  assert.throws(() => setGear(turbo, 'warp'), /gear must be steady or turbo/);
+
+  const pinned = makeCompany({ gear: 'turbo', heartbeat: { max_concurrent: 1 } });
+  assert.equal(pinned.config.heartbeat.maxConcurrent, 1, 'explicit caps win over the gear');
+});
+
+test('agent fields are edited in place, instructions untouched', () => {
+  const c = makeCompany();
+  setAgentFields(c, 'cody', { model: 'gpt-6-sol', effort: 'medium', enabled: false });
+  const again = loadCompany(c.root);
+  const cody = again.agents.find((a) => a.slug === 'cody')!;
+  assert.equal(cody.model, 'gpt-6-sol');
+  assert.equal(cody.effort, 'medium');
+  assert.equal(cody.enabled, false);
+  assert.match(cody.instructions, /You are Cody, the Engineer/);
 });
