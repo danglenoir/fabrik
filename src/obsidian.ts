@@ -14,6 +14,28 @@ export function fabrikFolder(company: Company): string | null {
   return o ? join(o.vault, o.folder) : null;
 }
 
+const INBOX_README = `# Inbox
+
+Drop a note here to give an agent work. Address it in the note's frontmatter:
+
+\`\`\`markdown
+---
+to: ada
+---
+Please look at the pricing page.
+\`\`\`
+
+\`to:\` takes one agent slug or a list. Notes with \`status: done\` are ignored, and so is this file.
+`;
+
+/** Create the company folder and its inbox (with a how-to) once the vault exists. */
+export function ensureVaultFolder(company: Company): void {
+  const o = company.config.obsidian;
+  if (!o || !existsSync(o.vault)) return; // never create a vault at a mistyped path
+  const readme = join(o.vault, o.folder, 'inbox', 'README.md');
+  if (!existsSync(readme)) writeFileAtomic(readme, INBOX_README);
+}
+
 function append(path: string, header: string, line: string): void {
   mkdirSync(dirname(path), { recursive: true });
   if (!existsSync(path)) writeFileAtomic(path, header);

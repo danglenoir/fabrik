@@ -6,7 +6,8 @@ import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { loadCompany, normalizeAgent, normalizeConfig, renderOrg, validateCompany } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
 import { installCompanySkill } from './isolation.ts';
-import { FabrikError, writeFileAtomic } from './util.ts';
+import { ensureVaultFolder } from './obsidian.ts';
+import { FabrikError, formatDuration, writeFileAtomic } from './util.ts';
 
 /**
  * proposal.yaml, written by the fabrik-onboard skill:
@@ -124,8 +125,8 @@ ${renderOrg(company).split('\n').slice(4).join('\n')}
 ## Heartbeat policy
 
 - Agents wake on events (Plane label \`${company.config.plane?.agentLabelPrefix ?? 'agent:'}<slug>\`, comments, @mentions, Obsidian inbox notes, \`fabrik wake\`).
-- Timers: ${hb.timerMs === null ? 'off by default' : `every ${hb.timerMs / 3_600_000}h`} (per-agent overrides in the table), and they only fire when there is open work.
-- Caps: ${hb.maxRunsPerDay} runs per agent per day, ${hb.maxConcurrent} agents working at once, ${hb.cooldownMs / 1000}s cooldown, context reset every ${hb.rotateAfterRuns} runs.
+- Timers: ${hb.timerMs === null ? 'off by default' : `every ${formatDuration(hb.timerMs)}`} (per-agent overrides in the table), and they only fire when there is open work.
+- Caps: ${hb.maxRunsPerDay} runs per agent per day, ${hb.maxConcurrent} agents working at once, ${formatDuration(hb.cooldownMs)} cooldown, context reset every ${hb.rotateAfterRuns} runs.
 
 ## Permissions
 
@@ -167,7 +168,7 @@ export function initCompany(opts: InitOptions): Company {
 
   mkdirSync(dir, { recursive: true });
   const cleanConfig = Object.fromEntries(Object.entries(configRaw).filter(([, v]) => v !== undefined));
-  writeFileAtomic(join(dir, 'fabrik.yaml'), `# fabrik company config — see PLAN.md §5. Secrets live in ~/.config/fabrik/${config.company.slug}.env\n${toYaml(cleanConfig)}`);
+  writeFileAtomic(join(dir, 'fabrik.yaml'), `# fabrik company config: https://github.com/danglenoir/fabrik#configuration\n# Secrets are not kept here: fabrik secret set KEY stores them in ~/.config/fabrik/${config.company.slug}.env\n${toYaml(cleanConfig)}`);
   const c = raw.company ?? {};
   const ctx = raw.context ?? {};
   writeFileAtomic(join(dir, 'COMPANY.md'), `# ${config.company.name}\n\n` +
@@ -186,6 +187,7 @@ export function initCompany(opts: InitOptions): Company {
   }
   const loaded = loadCompany(dir);
   installCompanySkill(loaded);
+  ensureVaultFolder(loaded);
   writeFileAtomic(join(dir, 'ORG.md'), renderOrg(loaded));
   writeFileAtomic(join(dir, 'PROPOSAL.md'), proposalMd(loaded, raw));
 

@@ -24,6 +24,18 @@ export function parseDuration(value: string | number | boolean | null | undefine
   return n * factor;
 }
 
+/** The inverse of parseDuration for display: 300000 -> "5m", 5400000 -> "1h30m", null -> "off". */
+export function formatDuration(ms: number | null): string {
+  if (ms === null) return 'off';
+  let rest = Math.round(ms / 1000) * 1000;
+  let out = '';
+  for (const [unit, size] of [['d', 86_400_000], ['h', 3_600_000], ['m', 60_000], ['s', 1000]] as const) {
+    const n = Math.floor(rest / size);
+    if (n) { out += `${n}${unit}`; rest -= n * size; }
+  }
+  return out || '0s';
+}
+
 /** Write a file atomically: temp file in the same directory, then rename. */
 export function writeFileAtomic(path: string, data: string, mode?: number): void {
   mkdirSync(dirname(path), { recursive: true });

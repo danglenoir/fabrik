@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { herdrName } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
@@ -7,7 +7,7 @@ import { allClaims, dropClaim } from './claims.ts';
 import { adapterFor } from './harness.ts';
 import { Herdr } from './herdr.ts';
 import type { HerdrAgent } from './herdr.ts';
-import { appendAttention, resolveAttention, scanInbox, writeStatusCard } from './obsidian.ts';
+import { appendAttention, ensureVaultFolder, resolveAttention, scanInbox, writeStatusCard } from './obsidian.ts';
 import { Plane } from './plane.ts';
 import type { PlaneComment } from './plane.ts';
 import { diffIssue, enqueue, limitAgentChatter, wakeText } from './rules.ts';
@@ -375,6 +375,10 @@ export class Daemon {
   async run(once = false): Promise<void> {
     takeLock(this.company);
     log(`daemon started for ${this.company.config.company.slug} (pid ${process.pid}, herdr session ${this.company.config.herdr.session})`);
+    // Both logs exist from the start, so `tail -f` works before the first wake.
+    appendFileSync(join(this.company.stateDir, 'runs.jsonl'), '');
+    logEvent(this.company, { type: 'daemon_started', pid: process.pid });
+    ensureVaultFolder(this.company);
     for (;;) {
       try {
         await this.tick();

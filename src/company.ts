@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { FabrikError, parseDuration } from './util.ts';
+import { FabrikError, formatDuration, parseDuration } from './util.ts';
 
 export const HARNESSES = ['claude', 'codex', 'grok', 'hermes'] as const;
 export type Harness = (typeof HARNESSES)[number];
@@ -253,7 +253,7 @@ export function renderOrg(company: Company): string {
   tree(null, 1);
   lines.push('', '| slug | name | title | reports to | harness | model | effort | autonomy | timer |', '|---|---|---|---|---|---|---|---|---|');
   for (const a of company.agents) {
-    const timer = a.timerMs === null ? 'off' : `${a.timerMs / 3_600_000}h`;
+    const timer = formatDuration(a.timerMs);
     lines.push(`| ${a.slug} | ${a.name} | ${a.title} | ${a.reportsTo ?? 'human'} | ${a.harness} | ${a.model} | ${a.effort ?? '-'} | ${a.autonomy} | ${timer} |`);
   }
   return lines.join('\n') + '\n';

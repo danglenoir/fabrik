@@ -6,7 +6,7 @@ import { stringify } from 'yaml';
 import { agentForCwd, loadCompany, renderOrg } from '../src/company.ts';
 import { ADAPTERS } from '../src/harness.ts';
 import { initCompany } from '../src/init.ts';
-import { parseDuration } from '../src/util.ts';
+import { formatDuration, parseDuration } from '../src/util.ts';
 import { makeCompany, proposal, tmp } from './helpers.ts';
 
 test('init writes a company that loads back', () => {
@@ -75,4 +75,27 @@ test('durations', () => {
   assert.equal(parseDuration('off'), null);
   assert.equal(parseDuration(false), null);
   assert.throws(() => parseDuration('soon'), /invalid duration/);
+  assert.equal(formatDuration(parseDuration('5m')), '5m');
+  assert.equal(formatDuration(parseDuration('90m')), '1h30m');
+  assert.equal(formatDuration(parseDuration('6h')), '6h');
+  assert.equal(formatDuration(null), 'off');
+});
+
+test('sub-hour timers render in minutes', () => {
+  const c = makeCompany({ agents: [
+    { slug: 'ada', name: 'Ada', title: 'CEO', reports_to: null, harness: 'claude', model: 'haiku', remit: 'x' },
+    { slug: 'wren', name: 'Wren', title: 'Ops', reports_to: 'ada', harness: 'grok', model: 'grok-4.7-build-fast', timer: '5m', remit: 'y' },
+  ] });
+  assert.match(renderOrg(c), /\| wren \|.*\| 5m \|$/m);
+  assert.match(readFileSync(join(c.root, 'PROPOSAL.md'), 'utf8'), /\| wren \|.*\| 5m \|$/m);
+});
+
+test('init creates the Obsidian inbox with a how-to when the vault exists', () => {
+  const vault = tmp('fabrik-vault-');
+  const c = makeCompany({ obsidian: { vault, folder: 'Fabrik' } });
+  assert.match(readFileSync(join(vault, 'Fabrik', 'inbox', 'README.md'), 'utf8'), /to: ada/);
+  assert.match(readFileSync(join(c.root, 'fabrik.yaml'), 'utf8'), /^# fabrik company config: https:\/\/github.com\/danglenoir\/fabrik#configuration/);
+  const missing = makeCompany({ obsidian: { vault: join(vault, 'typo'), folder: 'Fabrik' } });
+  assert.ok(!existsSync(join(vault, 'typo')), 'no vault is created at a mistyped path');
+  assert.ok(missing.config.obsidian);
 });
