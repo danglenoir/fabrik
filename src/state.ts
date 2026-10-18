@@ -51,6 +51,7 @@ export interface CompanyState {
     snaps: Record<string, IssueSnap>; // by issue id
     seenComments: Record<string, string[]>; // issue id -> comment ids
     askHuman: Record<string, string>; // issue id -> requesting agent slug
+    chatter: Record<string, number[]>; // ticket key -> times of agent-caused wakes (loop guard)
   };
   inbox: Record<string, number>; // note path -> mtimeMs processed
 }
@@ -68,10 +69,11 @@ export function statePath(company: Company): string {
 
 export function loadState(company: Company): CompanyState {
   const s = readJson<CompanyState>(statePath(company), {
-    version: 1, workspaceId: null, agents: {}, plane: { hwm: null, lastPoll: 0, snaps: {}, seenComments: {}, askHuman: {} }, inbox: {},
+    version: 1, workspaceId: null, agents: {}, plane: { hwm: null, lastPoll: 0, snaps: {}, seenComments: {}, askHuman: {}, chatter: {} }, inbox: {},
   });
   for (const a of company.agents) s.agents[a.slug] = { ...emptyAgentState(), ...s.agents[a.slug] };
   s.plane.askHuman ??= {};
+  s.plane.chatter ??= {};
   return s;
 }
 

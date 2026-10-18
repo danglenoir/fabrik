@@ -9,7 +9,7 @@ import type { HerdrAgent } from './herdr.ts';
 import { appendAttention, scanInbox, writeStatusCard } from './obsidian.ts';
 import { Plane } from './plane.ts';
 import type { PlaneComment } from './plane.ts';
-import { diffIssue, enqueue, wakeText } from './rules.ts';
+import { diffIssue, enqueue, limitAgentChatter, wakeText } from './rules.ts';
 import type { WakeEvent } from './rules.ts';
 import { getSecret } from './secrets.ts';
 import { loadState, logEvent, logRun, reportPath, withState } from './state.ts';
@@ -110,7 +110,12 @@ export class Daemon {
           state.plane.seenComments[issue.id] = comments.map((c) => c.id).slice(-200);
         }
         if (!bootstrap && !unchanged) {
-          events.push(...diffIssue(this.company, prev, issue, fresh, { snaps: state.plane.snaps, askHuman: state.plane.askHuman }));
+          const { kept, dropped } = limitAgentChatter(diffIssue(this.company, prev, issue, fresh, { snaps: state.plane.snaps, askHuman: state.plane.askHuman }), state.plane.chatter, Date.now());
+          events.push(...kept);
+          for (const ev of dropped) {
+            log(`loop guard: not waking ${ev.agent} for ${ev.key} (${ev.reason}); agents woke each other too often on this ticket`);
+            logEvent(this.company, { type: 'wake_dropped', guard: 'agent chatter', ...ev });
+          }
         }
         state.plane.snaps[issue.id] = { key: issue.key, labels: issue.labels, stateGroup: issue.stateGroup, parent: issue.parent, updatedAt: issue.updatedAt };
       }

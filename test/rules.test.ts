@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { diffIssue, enqueue, mentions, wakeText } from '../src/rules.ts';
+import { diffIssue, enqueue, limitAgentChatter, mentions, wakeText } from '../src/rules.ts';
 import type { PlaneComment, PlaneIssue } from '../src/plane.ts';
 import type { IssueSnap, WakeItem } from '../src/state.ts';
 import { makeCompany } from './helpers.ts';
@@ -57,6 +57,46 @@ test('reopen, children done and human answers', () => {
 
   const asked = diffIssue(company, snap({ labels: ['human'] }), issue({ labels: ['human'] }), [comment('yes, go ahead')], { snaps: {}, askHuman: { i1: 'cody' } });
   assert.deepEqual(asked, [{ agent: 'cody', key: 'ACME-1', reason: 'human answered' }]);
+});
+
+test('leaving the backlog makes a ticket ready', () => {
+  const labelled = diffIssue(company, snap({ labels: ['agent:cody'], stateGroup: 'backlog' }), issue({ labels: ['agent:cody'] }), [], ctx);
+  assert.deepEqual(labelled, [{ agent: 'cody', key: 'ACME-1', reason: 'assigned' }]);
+  const unlabelled = diffIssue(company, snap({ stateGroup: 'backlog' }), issue(), [], ctx);
+  assert.deepEqual(unlabelled, [{ agent: 'ada', key: 'ACME-1', reason: 'new unassigned ticket to triage' }]);
+  assert.deepEqual(diffIssue(company, snap({ labels: ['agent:cody'] }), issue({ labels: ['agent:cody'], stateGroup: 'started' }), [], ctx), [], 'todo -> in progress is not a new assignment');
+});
+
+test('sub-tasks done: only for an open parent, and questions to the human do not count', () => {
+  const child = () => issue({ id: 'i10', key: 'ACME-10', parent: 'parent', stateGroup: 'completed' });
+  const prevChild = snap({ parent: 'parent', stateGroup: 'started' });
+  const closedParent = { parent: snap({ key: 'ACME-9', labels: ['agent:ada'], stateGroup: 'completed' }) };
+  assert.deepEqual(diffIssue(company, prevChild, child(), [], { snaps: closedParent, askHuman: {} }), [], 'parent already closed');
+
+  const withQuestion = {
+    parent: snap({ key: 'ACME-9', labels: ['agent:ada'], stateGroup: 'started' }),
+    question: snap({ key: 'ACME-12', labels: ['human'], parent: 'parent', stateGroup: 'unstarted' }),
+  };
+  assert.deepEqual(diffIssue(company, prevChild, child(), [], { snaps: withQuestion, askHuman: {} }), [{ agent: 'ada', key: 'ACME-9', reason: 'all sub-tasks done' }]);
+
+  const questionClosed = diffIssue(company, snap({ labels: ['human'], parent: 'parent' }), issue({ id: 'question', key: 'ACME-12', labels: ['human'], parent: 'parent', stateGroup: 'completed' }), [], { snaps: withQuestion, askHuman: { question: 'ada' } });
+  assert.deepEqual(questionClosed, [{ agent: 'ada', key: 'ACME-12', reason: 'human resolved your question' }]);
+});
+
+test('loop guard limits agents waking each other on one ticket, never humans', () => {
+  const history: Record<string, number[]> = {};
+  const agentEv = { agent: 'ada', key: 'ACME-3', reason: 'mentioned by wren' };
+  const humanEv = { agent: 'ada', key: 'ACME-3', reason: 'comment from a human' };
+  let kept = 0;
+  for (let i = 0; i < 6; i++) kept += limitAgentChatter([agentEv], history, 1_000 + i).kept.length;
+  assert.equal(kept, 4);
+  assert.equal(limitAgentChatter([humanEv], history, 2_000).kept.length, 1);
+  assert.equal(limitAgentChatter([agentEv], history, 1_000 + 3_600_001).kept.length, 1, 'the window slides');
+});
+
+test('a mention wake says the ticket belongs to someone else', () => {
+  assert.match(wakeText('R1', [{ key: 'ACME-3', reasons: ['mentioned by wren'], firstAt: 0, lastAt: 0 }]), /belongs to someone else/);
+  assert.doesNotMatch(wakeText('R1', [{ key: 'ACME-3', reasons: ['assigned'], firstAt: 0, lastAt: 0 }]), /belongs to someone else/);
 });
 
 test('queue coalesces by key and wake text lists reasons', () => {

@@ -44,10 +44,13 @@ export function diffIssue(company: Company, prev: IssueSnap | undefined, issue: 
   const now = assignedAgents(company, issue.labels);
   const before = prev ? assignedAgents(company, prev.labels) : [];
   const active = ACTIVE.has(issue.stateGroup);
+  // Plane creates tickets in Backlog by default; moving one out of it is when it becomes ready.
+  const activated = !!prev && active && !ACTIVE.has(prev.stateGroup) && !CLOSED.has(prev.stateGroup);
   const humanLabel = company.config.plane?.humanLabel ?? 'human';
+  const isHumanTicket = issue.labels.includes(humanLabel);
 
   for (const slug of now) {
-    if (active && !before.includes(slug)) out.push({ agent: slug, key: issue.key, reason: 'assigned' });
+    if (active && (activated || !before.includes(slug))) out.push({ agent: slug, key: issue.key, reason: 'assigned' });
   }
   if (prev && CLOSED.has(prev.stateGroup) && active) {
     for (const slug of now) out.push({ agent: slug, key: issue.key, reason: 'reopened' });
@@ -70,20 +73,51 @@ export function diffIssue(company: Company, prev: IssueSnap | undefined, issue: 
   if (prev && !CLOSED.has(prev.stateGroup) && CLOSED.has(issue.stateGroup)) {
     const requester = ctx.askHuman[issue.id];
     if (requester) out.push({ agent: requester, key: issue.key, reason: 'human resolved your question' });
-    if (issue.parent) {
-      const siblings = Object.entries(ctx.snaps).filter(([id, s]) => s.parent === issue.parent && id !== issue.id);
+    // Questions to the human hang off the task they are about, but they are not sub-tasks.
+    if (issue.parent && !isHumanTicket) {
       const parent = ctx.snaps[issue.parent];
-      if (parent && siblings.every(([, s]) => CLOSED.has(s.stateGroup))) {
+      const siblings = Object.entries(ctx.snaps).filter(([id, s]) => s.parent === issue.parent && id !== issue.id && !s.labels.includes(humanLabel));
+      if (parent && !CLOSED.has(parent.stateGroup) && siblings.every(([, s]) => CLOSED.has(s.stateGroup))) {
         for (const slug of assignedAgents(company, parent.labels)) out.push({ agent: slug, key: parent.key, reason: 'all sub-tasks done' });
       }
     }
   }
 
   const router = company.config.router.unassigned;
-  if (!prev && active && router && now.length === 0 && !issue.labels.includes(humanLabel)) {
+  if ((!prev || activated) && active && router && now.length === 0 && !isHumanTicket) {
     out.push({ agent: router, key: issue.key, reason: 'new unassigned ticket to triage' });
   }
   return out;
+}
+
+/** True for wakes caused by another agent's comment or @mention (as opposed to a human). */
+export function causedByAgent(reason: string): boolean {
+  return /^(comment from|mentioned by) (?!a human$)/.test(reason);
+}
+
+export const AGENT_WAKES_PER_TICKET_PER_HOUR = 4;
+
+/**
+ * Loop guard: two agents that answer each other on one ticket would wake each other until the
+ * daily cap. Allow at most `limit` agent-caused wakes per ticket per hour; `history` (ticket key
+ * -> timestamps) is updated in place. Wakes caused by humans are never limited.
+ */
+export function limitAgentChatter(events: WakeEvent[], history: Record<string, number[]>, now: number, limit = AGENT_WAKES_PER_TICKET_PER_HOUR): { kept: WakeEvent[]; dropped: WakeEvent[] } {
+  for (const [key, times] of Object.entries(history)) {
+    const recent = times.filter((t) => now - t < 3_600_000);
+    if (recent.length) history[key] = recent;
+    else delete history[key];
+  }
+  const kept: WakeEvent[] = [];
+  const dropped: WakeEvent[] = [];
+  for (const ev of events) {
+    if (!causedByAgent(ev.reason)) { kept.push(ev); continue; }
+    const times = (history[ev.key] ??= []);
+    if (times.length >= limit) { dropped.push(ev); continue; }
+    times.push(now);
+    kept.push(ev);
+  }
+  return { kept, dropped };
 }
 
 /** Merge an event into an agent queue, coalescing by key. */
@@ -99,5 +133,7 @@ export function enqueue(queue: WakeItem[], ev: WakeEvent, now: number): void {
 
 export function wakeText(runId: string, items: WakeItem[]): string {
   const parts = items.map((i) => `${i.key}: ${i.reasons.join(', ')}`);
-  return `[fabrik wake run=${runId}] ${parts.join('; ')}. Run your fabrik heartbeat now (skill "fabrik", or: fabrik help heartbeat).`;
+  const mentioned = items.some((i) => i.reasons.some((r) => r.startsWith('mentioned by')));
+  const hint = mentioned ? ' Where you were only mentioned, the ticket belongs to someone else: answer what you were asked there and do not take over its work.' : '';
+  return `[fabrik wake run=${runId}] ${parts.join('; ')}.${hint} Run your fabrik heartbeat now (skill "fabrik", or: fabrik help heartbeat).`;
 }
