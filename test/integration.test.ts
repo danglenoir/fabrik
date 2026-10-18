@@ -10,6 +10,7 @@ import { planeChecks } from '../src/ops.ts';
 import { Plane } from '../src/plane.ts';
 import { getSecret, secretsPath, setSecret } from '../src/secrets.ts';
 import { loadState, withState } from '../src/state.ts';
+import { today } from '../src/util.ts';
 import { FakePlane } from './fake-plane.ts';
 import { FakeHerdr, makeCompany, tmp } from './helpers.ts';
 
@@ -123,7 +124,7 @@ test('ask-human creates a human ticket, registers the requester and writes atten
 test('journal notes and run reports', () => {
   assert.match(note(company, ada(), 'Decided to ship Friday'), /journal\/ada\//);
   runDone(company, ada(), 'Planned the week');
-  const journal = readFileSync(join(vault, 'Fabrik', 'journal', 'ada', `${new Date().toISOString().slice(0, 10)}.md`), 'utf8');
+  const journal = readFileSync(join(vault, 'Fabrik', 'journal', 'ada', `${today()}.md`), 'utf8');
   assert.match(journal, /Decided to ship Friday[\s\S]*run done: Planned the week/);
 });
 

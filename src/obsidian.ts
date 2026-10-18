@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statS
 import { dirname, join, relative } from 'node:path';
 import type { Company } from './company.ts';
 import { parseFrontmatter } from './company.ts';
-import { today, writeFileAtomic } from './util.ts';
+import { localStamp, today, writeFileAtomic } from './util.ts';
 
 /**
  * Plain-file Obsidian integration. fabrik only writes below <vault>/<folder>/ and gives every
@@ -47,7 +47,7 @@ export function appendJournal(company: Company, slug: string, text: string, now 
   if (!root) return null;
   const date = today(now);
   const path = join(root, 'journal', slug, `${date}.md`);
-  const time = now.toISOString().slice(11, 16);
+  const time = localStamp(now).slice(11);
   append(path, `---\nagent: ${slug}\ndate: ${date}\ntags: [fabrik/journal]\n---\n\n# ${slug} — ${date}\n\n`, `- ${time} ${text.replace(/\n+/g, ' ')}`);
   return path;
 }
@@ -57,7 +57,7 @@ export function appendAttention(company: Company, text: string, now = new Date()
   if (!root) return null;
   const path = join(root, 'attention.md');
   append(path, '---\ntags: [fabrik/attention]\n---\n\n# Needs your attention\n\nNewest at the bottom. fabrik ticks a question once it is handled; delete lines whenever you like.\n\n',
-    `- [ ] ${now.toISOString().slice(0, 16).replace('T', ' ')} ${text.replace(/\n+/g, ' ')}`);
+    `- [ ] ${localStamp(now)} ${text.replace(/\n+/g, ' ')}`);
   return path;
 }
 

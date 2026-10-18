@@ -58,8 +58,16 @@ export function appendJsonl(path: string, value: unknown): void {
   appendFileSync(path, JSON.stringify(value) + '\n');
 }
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Local calendar date, YYYY-MM-DD. Journals and the daily run cap follow the human's day, not UTC. */
 export function today(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** Local "YYYY-MM-DD HH:MM" for notes a human reads. Machine logs (runs.jsonl, events.jsonl) stay in UTC. */
+export function localStamp(now = new Date()): string {
+  return `${today(now)} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
 export function shortId(prefix: string): string {

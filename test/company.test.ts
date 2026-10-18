@@ -6,7 +6,7 @@ import { stringify } from 'yaml';
 import { agentForCwd, loadCompany, renderOrg } from '../src/company.ts';
 import { ADAPTERS } from '../src/harness.ts';
 import { initCompany } from '../src/init.ts';
-import { formatDuration, parseDuration } from '../src/util.ts';
+import { formatDuration, localStamp, parseDuration, today } from '../src/util.ts';
 import { makeCompany, proposal, tmp } from './helpers.ts';
 
 test('init writes a company that loads back', () => {
@@ -98,4 +98,10 @@ test('init creates the Obsidian inbox with a how-to when the vault exists', () =
   const missing = makeCompany({ obsidian: { vault: join(vault, 'typo'), folder: 'Fabrik' } });
   assert.ok(!existsSync(join(vault, 'typo')), 'no vault is created at a mistyped path');
   assert.ok(missing.config.obsidian);
+});
+
+test('human-facing dates use local time', () => {
+  const d = new Date(2026, 9, 18, 1, 56); // 01:56 local, which is still the 17th in UTC east of Greenwich
+  assert.equal(today(d), '2026-10-18');
+  assert.equal(localStamp(d), '2026-10-18 01:56');
 });

@@ -15,7 +15,7 @@ import type { WakeEvent } from './rules.ts';
 import { getSecret } from './secrets.ts';
 import { loadState, logEvent, logRun, reportPath, withState } from './state.ts';
 import type { AgentState, CompanyState, InflightRun } from './state.ts';
-import { FabrikError, log, readJson, shortId, sleep, today } from './util.ts';
+import { FabrikError, localStamp, log, readJson, shortId, sleep, today } from './util.ts';
 
 const STALL_MS = 120_000;
 const MAX_ITEMS_PER_WAKE = 5;
@@ -365,7 +365,7 @@ export class Daemon {
           slug: agent.slug, name: agent.name, title: agent.title, harness: agent.harness, model: agent.model,
           status: s.inflight ? `working (${s.inflight.runId})` : (l?.agent_status ?? 'offline'),
           queue: s.queue.map((q) => q.key), runsToday: s.runsDate === today() ? s.runsToday : 0,
-          lastRun: s.lastRunEnd ? new Date(s.lastRunEnd).toISOString().slice(0, 16).replace('T', ' ') : '', paused: s.paused,
+          lastRun: s.lastRunEnd ? localStamp(new Date(s.lastRunEnd)) : '', paused: s.paused,
         });
       }
     });
