@@ -37,8 +37,11 @@ function exec(cmd: string, args: string[]): Promise<string> {
   });
 }
 
-const CLAUDE_PERMISSION: Record<Autonomy, string> = { low: 'acceptEdits', medium: 'auto', high: 'bypassPermissions' };
-const GROK_PERMISSION: Record<Autonomy, string> = { low: 'acceptEdits', medium: 'auto', high: 'bypassPermissions' };
+// low: ask before editing files or running commands (the fabrik CLI is always allowed).
+// medium: no prompts for routine work; the harness's own safety classifier or sandbox decides.
+// high: no prompts at all.
+const CLAUDE_PERMISSION: Record<Autonomy, string> = { low: 'default', medium: 'auto', high: 'bypassPermissions' };
+const GROK_PERMISSION: Record<Autonomy, string> = { low: 'default', medium: 'auto', high: 'bypassPermissions' };
 const CODEX_PERMISSION: Record<Autonomy, string[]> = {
   low: ['-s', 'workspace-write', '-a', 'on-request'],
   medium: ['-s', 'workspace-write', '-a', 'never'],
