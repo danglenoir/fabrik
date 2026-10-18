@@ -1,14 +1,12 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
-import { join } from 'node:path';
+import { claimHolder, dropClaim, takeClaim } from './claims.ts';
 import { agentForCwd } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
-import { reportPath } from './daemon.ts';
 import { appendAttention, appendJournal, scanInbox } from './obsidian.ts';
 import { escapeHtml, Plane, stripHtml, textToHtml } from './plane.ts';
 import type { PlaneIssue } from './plane.ts';
 import { commentAuthor } from './rules.ts';
 import { getSecret } from './secrets.ts';
-import { withState } from './state.ts';
+import { reportPath, withState } from './state.ts';
 import { FabrikError, writeJson } from './util.ts';
 import { Herdr } from './herdr.ts';
 
@@ -33,43 +31,6 @@ export function planeFor(company: Company): Plane {
   const p = company.config.plane;
   if (!p) throw new FabrikError('no_plane', 'Plane is not configured in fabrik.yaml');
   return new Plane(p, getSecret(company, p.keyEnv));
-}
-
-function claimPath(company: Company, key: string): string {
-  return join(company.stateDir, 'claims', `${key.toUpperCase()}.json`);
-}
-
-export function claimHolder(company: Company, key: string): string | null {
-  const path = claimPath(company, key);
-  if (!existsSync(path)) return null;
-  try {
-    return String(JSON.parse(readFileSync(path, 'utf8')).agent);
-  } catch {
-    return null;
-  }
-}
-
-/** Atomic claim: O_EXCL create of claims/<KEY>.json. Returns false if another agent holds it. */
-export function takeClaim(company: Company, key: string, slug: string): boolean {
-  const path = claimPath(company, key);
-  mkdirSync(join(company.stateDir, 'claims'), { recursive: true });
-  try {
-    const fd = openSync(path, 'wx');
-    writeSync(fd, JSON.stringify({ agent: slug, at: new Date().toISOString() }));
-    closeSync(fd);
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    return claimHolder(company, key) === slug;
-  }
-}
-
-export function dropClaim(company: Company, key: string, slug: string, force = false): boolean {
-  const holder = claimHolder(company, key);
-  if (holder === null) return false;
-  if (holder !== slug && !force) throw new FabrikError('not_your_claim', `${key} is claimed by ${holder}`);
-  unlinkSync(claimPath(company, key));
-  return true;
 }
 
 function signature(agent: AgentDef): string {

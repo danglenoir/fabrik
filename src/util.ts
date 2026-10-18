@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -66,4 +66,33 @@ export function sleep(ms: number): Promise<void> {
 /** fabrik's own config dir. FABRIK_CONFIG_DIR isolates tests without touching XDG_*, which harnesses also read. */
 export function fabrikConfigDir(): string {
   return process.env.FABRIK_CONFIG_DIR || join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'fabrik');
+}
+
+/**
+ * Run `fn` while holding an exclusive lock file (O_EXCL create). A lock older than `staleMs`
+ * belongs to a crashed holder and is broken. Used for state.json and the shared Plane rate limit.
+ */
+export async function withFileLock<T>(lock: string, fn: () => T | Promise<T>, opts: { timeoutMs?: number; staleMs?: number } = {}): Promise<T> {
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const staleMs = opts.staleMs ?? 120_000;
+  mkdirSync(dirname(lock), { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      closeSync(openSync(lock, 'wx'));
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > staleMs) unlinkSync(lock);
+      } catch { /* lock vanished between calls */ }
+      if (Date.now() > deadline) throw new FabrikError('locked', `${lock} is locked; is another fabrik command stuck?`);
+      await sleep(25 + Math.random() * 50);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    try { unlinkSync(lock); } catch { /* already gone */ }
+  }
 }

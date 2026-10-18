@@ -12,7 +12,7 @@ import type { PlaneComment } from './plane.ts';
 import { diffIssue, enqueue, wakeText } from './rules.ts';
 import type { WakeEvent } from './rules.ts';
 import { getSecret } from './secrets.ts';
-import { loadState, logEvent, logRun, withState } from './state.ts';
+import { loadState, logEvent, logRun, reportPath, withState } from './state.ts';
 import type { AgentState, CompanyState } from './state.ts';
 import { FabrikError, log, readJson, shortId, sleep, today } from './util.ts';
 
@@ -71,10 +71,6 @@ function takeManualWakes(company: Company): WakeEvent[] {
     try { unlinkSync(path); } catch { /* raced */ }
   }
   return out;
-}
-
-export function reportPath(company: Company, slug: string): string {
-  return join(company.stateDir, 'reports', `${slug}.json`);
 }
 
 export class Daemon {

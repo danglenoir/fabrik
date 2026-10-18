@@ -1,7 +1,6 @@
-import { closeSync, mkdirSync, openSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Company } from './company.ts';
-import { FabrikError, readJson, writeJson, appendJsonl, sleep } from './util.ts';
+import { FabrikError, readJson, writeJson, appendJsonl, withFileLock } from './util.ts';
 
 export interface WakeItem {
   key: string; // coalescing key: issue identifier, note path, "manual", "timer"
@@ -85,30 +84,23 @@ export function saveState(company: Company, state: CompanyState): void {
  * (`fabrik apply`, `fabrik pause`, …) both write state.json; the lock stops lost updates.
  */
 export async function withState<T>(company: Company, fn: (state: CompanyState) => T | Promise<T>): Promise<T> {
-  mkdirSync(company.stateDir, { recursive: true });
   const lock = join(company.stateDir, 'state.lock');
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    try {
-      closeSync(openSync(lock, 'wx'));
-      break;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > 120_000) unlinkSync(lock); // stale: holder crashed
-      } catch { /* lock vanished between calls */ }
-      if (Date.now() > deadline) throw new FabrikError('state_locked', `state is locked (${lock}); is another fabrik command stuck?`);
-      await sleep(100);
-    }
-  }
   try {
-    const state = loadState(company);
-    const result = await fn(state);
-    saveState(company, state);
-    return result;
-  } finally {
-    try { unlinkSync(lock); } catch { /* already gone */ }
+    return await withFileLock(lock, async () => {
+      const state = loadState(company);
+      const result = await fn(state);
+      saveState(company, state);
+      return result;
+    });
+  } catch (err) {
+    if ((err as FabrikError).code === 'locked') throw new FabrikError('state_locked', `state is locked (${lock}); is another fabrik command stuck?`);
+    throw err;
   }
+}
+
+/** Where `fabrik run done` leaves the agent's report for the daemon. */
+export function reportPath(company: Company, slug: string): string {
+  return join(company.stateDir, 'reports', `${slug}.json`);
 }
 
 export function logRun(company: Company, record: Record<string, unknown>): void {
