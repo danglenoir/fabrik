@@ -10,7 +10,7 @@ import { Herdr } from './herdr.ts';
 import { codexHome, codexHomeLinks } from './isolation.ts';
 import { fabrikFolder } from './obsidian.ts';
 import { reapplyMetadata } from './apply.ts';
-import { Plane } from './plane.ts';
+import { Plane, PlaneHttpError } from './plane.ts';
 import { getSecret } from './secrets.ts';
 import { fabrikConfigDir, readJson, writeFileAtomic, writeJson } from './util.ts';
 
@@ -197,20 +197,7 @@ export async function doctor(company: Company): Promise<Check[]> {
   if (p) {
     const key = getSecret(company, p.keyEnv);
     if (!key) add('fail', `Plane key missing: fabrik secret set ${p.keyEnv}`);
-    else {
-      try {
-        const plane = new Plane(p, key);
-        const me = await plane.me();
-        add('ok', `Plane ${p.url} as ${me.display_name ?? me.email ?? me.id}`);
-        for (const ident of p.projects) {
-          const proj = await plane.project(ident);
-          for (const w of ['todo', 'in_progress', 'done']) await plane.stateFor(proj.id, w);
-          add('ok', `Plane project ${ident} found with todo/in progress/done states`);
-        }
-      } catch (err) {
-        add('fail', `Plane: ${(err as Error).message}`);
-      }
-    }
+    else checks.push(...(await planeChecks(company, new Plane(p, key))));
   } else add('warn', 'Plane not configured: agents only get Obsidian inbox notes and manual wakes');
 
   const folder = fabrikFolder(company);
@@ -228,6 +215,49 @@ export async function doctor(company: Company): Promise<Check[]> {
 
   const pid = daemonPid(company);
   add(pid ? 'ok' : 'warn', pid ? `daemon running (pid ${pid})` : 'daemon not running: fabrik service install (or fabrik daemon)');
+  return checks;
+}
+
+/** Plane checks for doctor: key, workspace membership, projects, the states fabrik uses, key scope. */
+export async function planeChecks(company: Company, plane: Plane): Promise<Check[]> {
+  const p = company.config.plane!;
+  const checks: Check[] = [];
+  const add = (level: Check['level'], text: string) => checks.push({ level, text });
+  let user: string;
+  try {
+    const me = await plane.me();
+    user = me.display_name ?? me.email ?? me.id;
+    add('ok', `Plane ${p.url} as ${user}`);
+  } catch (err) {
+    const status = (err as PlaneHttpError).status;
+    add('fail', status === 401 ? `Plane rejected the key in ${p.keyEnv}; create a new one and run fabrik secret set ${p.keyEnv}` : `Plane: ${(err as Error).message}`);
+    return checks;
+  }
+  let projects;
+  try {
+    projects = await plane.projects();
+  } catch (err) {
+    if ((err as PlaneHttpError).status === 403 || (err as PlaneHttpError).status === 404) {
+      add('fail', `Plane user ${user} is not a member of workspace "${p.workspace}", or the slug is wrong. The slug is the first path segment of your Plane URLs: ${p.url}/<workspace-slug>/projects/...`);
+    } else add('fail', `Plane: ${(err as Error).message}`);
+    return checks;
+  }
+  for (const ident of p.projects) {
+    const proj = projects.find((x) => x.identifier === ident);
+    if (!proj) { add('fail', `Plane project ${ident} not found in workspace ${p.workspace} (visible: ${projects.map((x) => x.identifier).join(', ') || 'none'})`); continue; }
+    const states = await plane.states(proj.id);
+    const missing = [['todo', 'unstarted'], ['done', 'completed']].filter(([, g]) => !states.some((s) => s.group === g)).map(([w]) => w);
+    if (missing.length) { add('fail', `Plane project ${ident} has no ${missing.join('/')} state`); continue; }
+    add('ok', `Plane project ${ident}: ${states.map((s) => s.name).join(', ')}`);
+    // The heartbeat moves tickets to In Review and Blocked; without them they silently land in In Progress.
+    for (const [word, re, name] of [['in_review', /review/i, 'In Review'], ['blocked', /block/i, 'Blocked']] as const) {
+      if (!states.some((s) => re.test(s.name))) add('warn', `Plane project ${ident} has no "${name}" state: add one in the Started group (\`task state ${word}\` falls back to ${states.find((s) => s.group === 'started')?.name ?? 'In Progress'})`);
+    }
+    const def = states.find((s) => s.id === proj.defaultState);
+    if (def?.group === 'backlog') add('ok', `new ${ident} tickets start in ${def.name}: agents are woken when a ticket moves to Todo or later`);
+  }
+  const extra = projects.filter((x) => !p.projects.includes(x.identifier)).map((x) => x.identifier);
+  if (extra.length) add('warn', `the Plane key also reaches ${extra.join(', ')}; keys carry their user's full rights, so consider a dedicated fabrik user limited to ${p.projects.join(', ')}`);
   return checks;
 }
 

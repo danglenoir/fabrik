@@ -5,7 +5,7 @@ import { fabrikConfigDir, FabrikError, readJson, sleep, withFileLock, writeJson 
 
 export interface PlaneState { id: string; name: string; group: string }
 export interface PlaneLabel { id: string; name: string }
-export interface PlaneProject { id: string; identifier: string; name: string }
+export interface PlaneProject { id: string; identifier: string; name: string; defaultState: string | null }
 
 export interface PlaneIssue {
   id: string;
@@ -28,6 +28,14 @@ export interface PlaneComment {
   text: string;
   actor: string | null;
   createdAt: string;
+}
+
+export class PlaneHttpError extends FabrikError {
+  status: number;
+  constructor(status: number, message: string) {
+    super('plane_http', message);
+    this.status = status;
+  }
 }
 
 /** fabrik signs comments it posts for an agent so the daemon can tell them apart. */
@@ -116,7 +124,7 @@ export class Plane {
       }
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new FabrikError('plane_http', `Plane ${method} ${path} -> ${res.status} ${text.slice(0, 300)}`);
+        throw new PlaneHttpError(res.status, `Plane ${method} ${path} -> ${res.status} ${text.slice(0, 300)}`);
       }
       if (res.status === 204) return undefined as T;
       return (await res.json()) as T;
@@ -135,14 +143,15 @@ export class Plane {
     if (!this.projectCache) {
       const r = await this.request<any>('GET', `${this.ws()}/projects/`);
       const list: any[] = Array.isArray(r) ? r : (r.results ?? []);
-      this.projectCache = list.map((p) => ({ id: p.id, identifier: p.identifier, name: p.name }));
+      this.projectCache = list.map((p) => ({ id: p.id, identifier: p.identifier, name: p.name, defaultState: p.default_state ?? null }));
     }
     return this.projectCache;
   }
 
   async project(identifier: string): Promise<PlaneProject> {
-    const p = (await this.projects()).find((x) => x.identifier === identifier);
-    if (!p) throw new FabrikError('plane_project', `Plane project ${identifier} not found in workspace ${this.cfg.workspace}`);
+    const all = await this.projects();
+    const p = all.find((x) => x.identifier === identifier);
+    if (!p) throw new FabrikError('plane_project', `Plane project ${identifier} not found in workspace ${this.cfg.workspace} (visible: ${all.map((x) => x.identifier).join(', ') || 'none'})`);
     return p;
   }
 

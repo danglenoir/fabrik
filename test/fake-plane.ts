@@ -26,6 +26,8 @@ export class FakePlane {
   comments: FakeComment[] = [];
   requests: string[] = [];
   rateLimitNext = 0;
+  /** Other projects the key can see (they have no work items). */
+  extraProjects: Array<{ id: string; identifier: string; name: string }> = [];
   private clock = Date.parse('2026-10-17T08:00:00Z');
   url = '';
   private server = createServer((req, res) => this.handle(req, res));
@@ -101,7 +103,8 @@ export class FakePlane {
       let m: RegExpExecArray | null;
 
       if (p === '/users/me/') return this.send(res, 200, { id: 'fabrik-user', display_name: 'fabrik' });
-      if (p === `${ws}/projects/`) return this.send(res, 200, { results: [this.project] });
+      if (p.startsWith('/workspaces/') && !p.startsWith(`${ws}/`)) return this.send(res, 403, { detail: 'You do not have permission to perform this action.' });
+      if (p === `${ws}/projects/`) return this.send(res, 200, { results: [this.project, ...this.extraProjects] });
       if (p === `${proj}/states/`) return this.send(res, 200, { results: this.states });
       if (p === `${proj}/labels/` && req.method === 'GET') return this.send(res, 200, { results: this.labels });
       if (p === `${proj}/labels/` && req.method === 'POST') return this.send(res, 201, { id: this.label(body.name), name: body.name });

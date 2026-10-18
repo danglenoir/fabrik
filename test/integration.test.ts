@@ -6,6 +6,7 @@ import { askHuman, inbox, note, runDone, taskClaim, taskComment, taskCreate, tas
 import { claimHolder, takeClaim } from '../src/claims.ts';
 import type { Company } from '../src/company.ts';
 import { Daemon } from '../src/daemon.ts';
+import { planeChecks } from '../src/ops.ts';
 import { Plane } from '../src/plane.ts';
 import { getSecret, secretsPath, setSecret } from '../src/secrets.ts';
 import { loadState, withState } from '../src/state.ts';
@@ -66,6 +67,22 @@ test('plane clients share one request window across processes', async () => {
   const dir = join(process.env.FABRIK_CONFIG_DIR!, 'plane-rate');
   const [file] = readdirSync(dir).filter((f) => f.endsWith('.json'));
   assert.ok(JSON.parse(readFileSync(join(dir, file!), 'utf8')).length >= 2, 'both clients counted in the same window');
+});
+
+test('doctor: Plane states, workspace membership and key scope', async () => {
+  const plane = () => new Plane(company.config.plane!, fake.key, { onRetry: () => undefined });
+  const ok = await planeChecks(company, plane());
+  assert.ok(ok.some((c) => c.level === 'ok' && /Plane project ACME: Backlog, Todo/.test(c.text)));
+  assert.ok(ok.some((c) => c.level === 'warn' && /no "Blocked" state/.test(c.text)), 'missing Blocked state is reported');
+  assert.ok(!ok.some((c) => /no "In Review" state/.test(c.text)));
+
+  fake.extraProjects = [{ id: 'other', identifier: 'NSHOP', name: 'Shop' }];
+  assert.ok((await planeChecks(company, plane())).some((c) => c.level === 'warn' && /also reaches NSHOP/.test(c.text)));
+  fake.extraProjects = [];
+
+  const wrongWs = { ...company, config: { ...company.config, plane: { ...company.config.plane!, workspace: 'fab' } } };
+  const denied = await planeChecks(wrongWs, new Plane(wrongWs.config.plane!, fake.key, { onRetry: () => undefined }));
+  assert.match(denied.at(-1)!.text, /not a member of workspace "fab", or the slug is wrong/);
 });
 
 test('claims are exclusive', () => {
