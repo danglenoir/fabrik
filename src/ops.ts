@@ -7,6 +7,7 @@ import type { Company } from './company.ts';
 import { daemonPid } from './daemon.ts';
 import { ADAPTERS, adapterFor } from './harness.ts';
 import { Herdr } from './herdr.ts';
+import { codexHome, codexHomeLinks } from './isolation.ts';
 import { fabrikFolder } from './obsidian.ts';
 import { reapplyMetadata } from './apply.ts';
 import { Plane } from './plane.ts';
@@ -174,12 +175,22 @@ export async function doctor(company: Company): Promise<Check[]> {
     if (a.autonomy === 'high') add('warn', `${a.slug}: autonomy high runs without permission prompts`);
   }
 
+  const uses = (h: string) => company.agents.some((a) => a.enabled && a.harness === h);
+  const inherit = company.config.inheritUserConfig;
   if (existsSync(join(homedir(), 'AGENTS.md'))) {
     const shim = existsSync(join(company.root, 'CLAUDE.md'));
     add(shim ? 'ok' : 'warn', shim ? '~/AGENTS.md is kept out of Claude agents by the company CLAUDE.md' : '~/AGENTS.md will reach Claude agents (company CLAUDE.md missing)');
   }
-  if (company.agents.some((a) => a.harness === 'codex' && a.enabled) && existsSync(join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'AGENTS.md'))) {
-    add('warn', 'Codex agents also load your global ~/.codex/AGENTS.md (unavoidable without a separate CODEX_HOME)');
+  if (uses('claude')) {
+    add(inherit ? 'warn' : 'ok', inherit ? 'Claude agents load your personal Claude Code settings, hooks and plugins (inherit_user_config: true)' : 'Claude agents ignore your personal Claude Code settings, hooks and plugins');
+  }
+  if (uses('codex')) {
+    const globalAgents = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'AGENTS.md');
+    const hasGlobal = existsSync(globalAgents) && readFileSync(globalAgents, 'utf8').trim() !== '';
+    if (inherit) add(hasGlobal ? 'warn' : 'ok', hasGlobal ? `Codex agents also follow your global ${globalAgents} (inherit_user_config: true)` : 'Codex agents use your CODEX_HOME');
+    else if (!existsSync(codexHome(company))) add('warn', `Codex agents need their own CODEX_HOME; run fabrik apply to create ${codexHome(company)}`);
+    else if (existsSync(join(codexHome(company), 'auth.json')) && !codexHomeLinks(company, 'auth.json')) add('warn', `${join(codexHome(company), 'auth.json')} is a copy, not a link to your Codex login; delete it and run fabrik apply`);
+    else add('ok', `Codex agents use their own CODEX_HOME without your global AGENTS.md (${codexHome(company)})`);
   }
 
   const p = company.config.plane;
@@ -212,8 +223,8 @@ export async function doctor(company: Company): Promise<Check[]> {
     }
   } else add('warn', 'Obsidian not configured: no journals or status cards');
 
-  const skill = [join(homedir(), '.agents', 'skills', 'fabrik', 'SKILL.md'), join(homedir(), '.claude', 'skills', 'fabrik', 'SKILL.md')].find(existsSync);
-  add(skill ? 'ok' : 'warn', skill ? `fabrik skill installed (${skill})` : 'fabrik skill not installed: npx skills add danglenoir/fabrik -g -a claude-code codex grok');
+  const skill = [join(company.root, '.claude', 'skills', 'fabrik', 'SKILL.md'), join(homedir(), '.agents', 'skills', 'fabrik', 'SKILL.md'), join(homedir(), '.claude', 'skills', 'fabrik', 'SKILL.md')].find(existsSync);
+  add(skill ? 'ok' : 'warn', skill ? `fabrik skill installed (${skill})` : 'fabrik skill not installed: run fabrik apply, or npx skills add danglenoir/fabrik -g -a claude-code codex grok');
 
   const pid = daemonPid(company);
   add(pid ? 'ok' : 'warn', pid ? `daemon running (pid ${pid})` : 'daemon not running: fabrik service install (or fabrik daemon)');

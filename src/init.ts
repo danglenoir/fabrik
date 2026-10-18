@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { loadCompany, normalizeAgent, normalizeConfig, renderOrg, validateCompany } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
+import { installCompanySkill } from './isolation.ts';
 import { FabrikError, writeFileAtomic } from './util.ts';
 
 /**
@@ -149,7 +150,7 @@ export function initCompany(opts: InitOptions): Company {
   const agentsRaw: Record<string, any>[] = Array.isArray(raw.agents) ? raw.agents : [];
   if (agentsRaw.length === 0) throw new FabrikError('invalid_proposal', 'proposal has no agents');
 
-  const configRaw = { company: raw.company, herdr: raw.herdr, plane: raw.plane, obsidian: raw.obsidian, heartbeat: raw.heartbeat, router: raw.router };
+  const configRaw = { company: raw.company, herdr: raw.herdr, plane: raw.plane, obsidian: raw.obsidian, heartbeat: raw.heartbeat, router: raw.router, inherit_user_config: raw.inherit_user_config };
   const config = normalizeConfig(configRaw);
   const dir = resolve(opts.dir ?? defaultCompanyDir(config.company.slug));
   if (dir === homedir() || dir === '/') throw new FabrikError('unsafe_dir', `refusing to use ${dir} as a company directory`);
@@ -184,6 +185,7 @@ export function initCompany(opts: InitOptions): Company {
     writeFileAtomic(join(adir, 'CLAUDE.md'), CLAUDE_SHIM);
   }
   const loaded = loadCompany(dir);
+  installCompanySkill(loaded);
   writeFileAtomic(join(dir, 'ORG.md'), renderOrg(loaded));
   writeFileAtomic(join(dir, 'PROPOSAL.md'), proposalMd(loaded, raw));
 

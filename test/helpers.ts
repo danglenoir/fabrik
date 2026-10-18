@@ -26,10 +26,14 @@ export function proposal(extra: Record<string, unknown> = {}): Record<string, un
   };
 }
 
-/** A fresh company in a temp dir. FABRIK_CONFIG_DIR is redirected so secrets and the registry never touch ~/.config. */
+/**
+ * A fresh company in a temp dir. FABRIK_CONFIG_DIR and CODEX_HOME are redirected so secrets, the
+ * registry and the Codex mirror never touch the real home directory.
+ */
 export function makeCompany(extra: Record<string, unknown> = {}): Company {
   const dir = tmp();
   process.env.FABRIK_CONFIG_DIR = join(dir, 'cfg');
+  process.env.CODEX_HOME = join(dir, 'user-codex');
   const path = join(dir, 'proposal.yaml');
   writeFileSync(path, stringify(proposal(extra)));
   return initCompany({ proposalPath: path, dir: join(dir, 'acme'), git: false });

@@ -4,6 +4,7 @@ import { herdrName, renderOrg, tabLabel } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
 import { adapterFor, agentEnv, shellExport } from './harness.ts';
 import { Herdr, HerdrError } from './herdr.ts';
+import { installCompanySkill, syncCodexHome } from './isolation.ts';
 import type { HerdrAgent } from './herdr.ts';
 import { withState } from './state.ts';
 
@@ -154,6 +155,11 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
   const knownWs = known.workspaceId;
   const wsId = await findOrCreateWorkspace(herdr, company, knownWs, dryRun, say);
   if (wsId && !dryRun) await withState(company, (s) => { s.workspaceId = wsId; });
+
+  if (!dryRun) {
+    installCompanySkill(company); // keep the project copy of the heartbeat skill current
+    if (!company.config.inheritUserConfig && company.agents.some((a) => a.enabled && a.harness === 'codex')) syncCodexHome(company);
+  }
 
   const live = await herdr.agents();
   const tabs = wsId ? await herdr.tabs(wsId) : [];
