@@ -101,6 +101,11 @@ export class Herdr {
     return r.agent ?? r;
   }
 
+  /** Type a command line into a pane's shell (queued with Enter, like a human would). */
+  async runInPane(paneId: string, command: string): Promise<void> {
+    await this.run(['pane', 'run', paneId, command]);
+  }
+
   async renameAgent(target: string, name: string): Promise<void> {
     await this.run(['agent', 'rename', target, name]);
   }

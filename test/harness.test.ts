@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { ADAPTERS } from '../src/harness.ts';
+import { execFileSync } from 'node:child_process';
+import { ADAPTERS, agentEnv, shellExport } from '../src/harness.ts';
 import { makeCompany } from './helpers.ts';
 
 const company = makeCompany();
@@ -24,4 +25,16 @@ test('codex starts sandboxed with network access and without the update prompt',
   assert.deepEqual(args.slice(2, 6), ['-s', 'workspace-write', '-a', 'on-request']);
   assert.ok(args.includes('sandbox_workspace_write.network_access=true'));
   assert.ok(args.includes('check_for_update_on_startup=false'));
+});
+
+test('agents get their company paths as environment variables', () => {
+  const env = agentEnv(agent('ada', 'low'), company);
+  assert.equal(env.FABRIK_AGENT, 'ada');
+  assert.equal(env.FABRIK_COMPANY_DIR, company.root);
+  assert.equal(env.FABRIK_DATA_DIR, company.stateDir);
+});
+
+test('shellExport quotes values for the shell', () => {
+  const line = shellExport({ A: "it's here", B: '$HOME `x`' });
+  assert.equal(execFileSync('sh', ['-c', `${line}; printf '%s|%s' "$A" "$B"`], { encoding: 'utf8' }), "it's here|$HOME `x`");
 });

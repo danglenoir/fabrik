@@ -23,6 +23,8 @@ export interface HarnessAdapter {
   trust: Dialog | null;
   /** Models the harness reports as available, or null when it cannot be asked. */
   listModels(): Promise<string[] | null>;
+  /** Extra environment for the harness process, on top of agentEnv(). */
+  env?(agent: AgentDef, company: Company): Record<string, string>;
 }
 
 function identityLine(agent: AgentDef, company: Company): string {
@@ -54,8 +56,10 @@ const claude: HarnessAdapter = {
   harness: 'claude',
   supported: true,
   launchArgs(agent, company) {
-    // --add-dir: agents read ../../COMPANY.md and ORG.md without a permission prompt.
+    // --add-dir: agents read ../../COMPANY.md, ORG.md and their notes without a permission prompt.
     const args = ['--model', agent.model, '--permission-mode', CLAUDE_PERMISSION[agent.autonomy], '-n', `${agent.name} (${agent.title})`, '--add-dir', company.root];
+    const o = company.config.obsidian;
+    if (o) args.push('--add-dir', join(o.vault, o.folder));
     if (agent.effort) args.push('--effort', agent.effort);
     // The fabrik CLI is the agent's own toolbelt: never ask before running it.
     args.push('--allowedTools', 'Bash(fabrik *)');
@@ -143,6 +147,30 @@ const hermes: HarnessAdapter = {
 };
 
 export const ADAPTERS: Record<Harness, HarnessAdapter> = { claude, codex, grok, hermes };
+
+/**
+ * Environment fabrik sets in an agent's pane before starting its harness, so the agent (and any
+ * script it runs) knows where the company, its data and its notes live without asking.
+ */
+export function agentEnv(agent: AgentDef, company: Company): Record<string, string> {
+  const env: Record<string, string> = {
+    FABRIK_AGENT: agent.slug,
+    FABRIK_COMPANY_DIR: company.root,
+    FABRIK_DATA_DIR: company.stateDir,
+  };
+  const o = company.config.obsidian;
+  if (o) {
+    env.FABRIK_VAULT = o.vault;
+    env.FABRIK_OBSIDIAN_DIR = join(o.vault, o.folder);
+  }
+  return { ...env, ...ADAPTERS[agent.harness].env?.(agent, company) };
+}
+
+/** A POSIX `export` line for `env` (also understood by zsh and fish). The leading space keeps it out of shell history where configured. */
+export function shellExport(env: Record<string, string>): string {
+  const quote = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+  return ` export ${Object.entries(env).map(([k, v]) => `${k}=${quote(v)}`).join(' ')}`;
+}
 
 export function adapterFor(agent: AgentDef): HarnessAdapter {
   return ADAPTERS[agent.harness];

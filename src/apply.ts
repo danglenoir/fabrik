@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { herdrName, renderOrg, tabLabel } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
-import { adapterFor } from './harness.ts';
+import { adapterFor, agentEnv, shellExport } from './harness.ts';
 import { Herdr, HerdrError } from './herdr.ts';
 import type { HerdrAgent } from './herdr.ts';
 import { withState } from './state.ts';
@@ -216,6 +216,8 @@ export async function apply(company: Company, opts: ApplyOptions = {}): Promise<
     }
 
     try {
+      // herdr types the start command into the pane's shell, so variables exported there reach the harness.
+      await herdr.runInPane(paneId, shellExport(agentEnv(agent, company)));
       await herdr.startAgent(name, adapter.harness, paneId, adapter.launchArgs(agent, company), company.config.herdr.startTimeoutMs);
     } catch (err) {
       if (!(err instanceof HerdrError) || err.code !== 'agent_not_ready') {

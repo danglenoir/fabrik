@@ -27,6 +27,7 @@ test('apply starts and introduces every agent once, and a rerun changes nothing'
   assert.deepEqual(r.introduced, ['ada', 'cody']);
   assert.deepEqual(herdr.tabList.map((t) => t.label), ['board', 'ada · ceo', 'cody · engineer']);
   assert.equal(loadState(company).agents.cody!.introduced, true);
+  assert.match(herdr.shellLines[0]!.command, /^ export FABRIK_AGENT='ada' FABRIK_COMPANY_DIR='[^']+'/, 'variables exported before the harness starts');
 
   for (const a of herdr.live) a.agent_status = 'idle';
   const again = await run(company, herdr);

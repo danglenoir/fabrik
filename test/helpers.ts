@@ -46,6 +46,7 @@ export class FakeHerdr {
   metadata: Array<{ pane: string; displayAgent?: string }> = [];
   notifications: string[] = [];
   renames: Array<{ target: string; name: string }> = [];
+  shellLines: Array<{ pane: string; command: string }> = [];
   started: string[] = [];
   workspaceList: HerdrWorkspace[] = [];
   tabList: HerdrTab[] = [];
@@ -120,6 +121,7 @@ export class FakeHerdr {
   async panes(workspaceId: string) {
     return this.tabList.filter((t) => t.workspace_id === workspaceId).map((t) => ({ pane_id: t.tab_id.replace(':t', ':p'), tab_id: t.tab_id }));
   }
+  async runInPane(pane: string, command: string) { this.shellLines.push({ pane, command }); }
   async startAgent(name: string, kind: string, paneId: string) {
     this.started.push(name);
     const tabId = paneId.replace(':p', ':t');

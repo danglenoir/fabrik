@@ -102,6 +102,14 @@ fabrik ask-human "<question>" [--task <KEY>]
 fabrik note "<text>"                    # append to your journal for today
 fabrik run done --summary "<text>"      # end of every wake
 \`\`\`
+
+## Environment
+
+fabrik sets these variables for every agent it starts:
+
+- \`FABRIK_AGENT\`: your slug
+- \`FABRIK_COMPANY_DIR\`: this directory; \`FABRIK_DATA_DIR\`: fabrik's state in \`.fabrik/\`
+- \`FABRIK_VAULT\`, \`FABRIK_OBSIDIAN_DIR\`: the Obsidian vault and the company's folder in it (when configured)
 `;
 }
 
