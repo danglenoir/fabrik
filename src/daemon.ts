@@ -2,7 +2,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { join } from 'node:path';
 import { herdrName } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
-import { reapplyMetadata } from './apply.ts';
+import { locateAgent, reapplyMetadata } from './apply.ts';
 import { adapterFor } from './harness.ts';
 import { Herdr } from './herdr.ts';
 import type { HerdrAgent } from './herdr.ts';
@@ -168,10 +168,12 @@ export class Daemon {
     }
     const st = live.agent_status;
     if (st === 'working') run.sawWorking = true;
-    const advanced = live.completion_seq > run.seqBefore;
-    if ((st === 'idle' || st === 'done') && (advanced || run.sawWorking)) {
-      const report = readJson<{ summary?: string; at?: number } | null>(reportPath(this.company, agent.slug), null);
-      const reported = !!report && (report.at ?? 0) >= run.startedAt;
+    // A fresh harness session (after /clear or /new) may not report completion_seq yet.
+    const advanced = (live.completion_seq ?? 0) > (run.seqBefore ?? 0);
+    const report = readJson<{ summary?: string; at?: number } | null>(reportPath(this.company, agent.slug), null);
+    const reported = !!report && (report.at ?? 0) >= run.startedAt;
+    // A short run can start and finish between two ticks; its report proves it ran.
+    if ((st === 'idle' || st === 'done') && (advanced || run.sawWorking || reported)) {
       logRun(this.company, { run: run.runId, agent: agent.slug, outcome: 'done', reported, summary: reported ? report!.summary : null, items: run.items.map((i) => i.key), ms: now - run.startedAt });
       s.failures = reported ? 0 : s.failures + 1;
       s.inflight = null;
@@ -187,7 +189,7 @@ export class Daemon {
       this.escalate(agent, `waiting for approval in its herdr tab (run ${run.runId})`);
       return;
     }
-    if (!run.sawWorking && !advanced && now - run.startedAt > STALL_MS) {
+    if (!run.sawWorking && !advanced && !reported && now - run.startedAt > STALL_MS) {
       this.escalate(agent, `did not react to wake ${run.runId}; it will be retried`);
       s.queue.unshift(...run.items);
       s.inflight = null;
@@ -254,7 +256,7 @@ export class Daemon {
     if (s.runsDate !== today()) { s.runsDate = today(); s.runsToday = 0; }
     s.runsToday++;
     s.runsSinceReset++;
-    s.inflight = { runId, seqBefore: live.completion_seq, startedAt: now, items, sawWorking: false, escalated: false };
+    s.inflight = { runId, seqBefore: live.completion_seq ?? 0, startedAt: now, items, sawWorking: false, escalated: false };
     logRun(this.company, { run: runId, agent: agent.slug, outcome: 'started', items: items.map((i) => ({ key: i.key, reasons: i.reasons })) });
     log(`${agent.slug}: wake ${runId} -> ${items.map((i) => i.key).join(', ')}`);
   }
@@ -300,13 +302,18 @@ export class Daemon {
         enqueue(s.queue, ev, now);
         logEvent(this.company, { type: 'wake_queued', ...ev });
       }
+      // herdr can drop an agent's name (seen after a codex /new); find it by pane and rename it.
+      const located = new Map<string, HerdrAgent | undefined>();
       for (const agent of this.company.agents) {
         const s = state.agents[agent.slug]!;
-        this.reconcile(agent, s, live.find((a) => a.name === herdrName(this.company, agent)), now);
+        located.set(agent.slug, await locateAgent(this.herdr, this.company, agent, live, s.paneId).catch(() => undefined));
+      }
+      for (const agent of this.company.agents) {
+        this.reconcile(agent, state.agents[agent.slug]!, located.get(agent.slug), now);
       }
       for (const agent of this.company.agents) {
         const s = state.agents[agent.slug]!;
-        const l = live.find((a) => a.name === herdrName(this.company, agent));
+        const l = located.get(agent.slug);
         const inflight = Object.values(state.agents).filter((x) => x.inflight).length;
         if (this.gate(agent, s, l, now, inflight) === null && l) {
           try {

@@ -91,6 +91,8 @@ const codex: HarnessAdapter = {
   resetCommand: '/new',
   dialogs: [
     { name: 'update-prompt', pattern: /Update available[\s\S]*Skip until next version/i, keys: ['down', 'enter'] }, // "2. Skip"
+    // `/new` in a git repository (every company is one) asks where to run; Enter keeps the current worktree.
+    { name: 'worktree-picker', pattern: /Where should the new conversation run/i, keys: ['enter'] },
   ],
   trust: { name: 'folder-trust', pattern: /Do you trust the contents of this directory|trust this (folder|directory)/i, keys: null },
   async listModels() {

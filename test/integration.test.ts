@@ -8,7 +8,7 @@ import type { Company } from '../src/company.ts';
 import { Daemon } from '../src/daemon.ts';
 import { Plane } from '../src/plane.ts';
 import { getSecret, secretsPath, setSecret } from '../src/secrets.ts';
-import { loadState } from '../src/state.ts';
+import { loadState, withState } from '../src/state.ts';
 import { FakePlane } from './fake-plane.ts';
 import { FakeHerdr, makeCompany, tmp } from './helpers.ts';
 
@@ -175,6 +175,60 @@ test('daemon: inbox notes wake their addressee once per edit', async () => {
   await d.tick();
   assert.equal(herdr.prompts.filter((p) => p.name === 'cody' && /note:inbox\/idea.md/.test(p.text)).length, 1);
   live.agent_status = 'idle';
+});
+
+async function reset(): Promise<void> {
+  await withState(company, (s) => {
+    for (const a of Object.values(s.agents)) { a.inflight = null; a.queue = []; a.paused = false; a.runsToday = 0; a.failures = 0; a.lastRunEnd = 0; }
+  });
+}
+
+test('daemon: a short run right after a context reset is closed by its report', async () => {
+  const herdr = new FakeHerdr();
+  const adaLive = herdr.addAgent('ada');
+  herdr.addAgent('cody');
+  const d = daemon(herdr);
+  await reset();
+  // A fresh harness session reports no completion_seq, and the run is over before the next tick.
+  delete (adaLive as Partial<typeof adaLive>).completion_seq;
+  wake('ada');
+  await d.tick();
+  assert.ok(loadState(company).agents.ada!.inflight, 'woken');
+  runDone(company, ada(), 'nothing to do');
+  await d.tick();
+  const s = loadState(company).agents.ada!;
+  assert.equal(s.inflight, null, 'closed without seeing it work');
+  assert.equal(s.failures, 0);
+  assert.deepEqual(s.queue, [], 'not queued again');
+});
+
+test('daemon: an agent that lost its herdr name is found by pane and renamed', async () => {
+  const herdr = new FakeHerdr();
+  herdr.addAgent('ada');
+  const codyLive = herdr.addAgent('cody', 'idle', 'codex');
+  const d = daemon(herdr);
+  await reset();
+  await withState(company, (s) => { s.agents.cody!.paneId = codyLive.pane_id; });
+  codyLive.name = null;
+  wake('cody');
+  await d.tick();
+  assert.deepEqual(herdr.renames, [{ target: codyLive.pane_id, name: 'cody' }]);
+  assert.equal(herdr.prompts.filter((p) => p.name === 'cody').length, 1, 'woken, not abandoned');
+});
+
+test('daemon: the codex worktree picker after /new is answered before the wake', async () => {
+  const herdr = new FakeHerdr();
+  herdr.addAgent('ada');
+  herdr.addAgent('cody', 'idle', 'codex');
+  const d = daemon(herdr);
+  await reset();
+  herdr.screens.cody = 'Where should the new conversation run?\n› 1. Use current Git worktree\n  2. Create new Git worktree';
+  wake('cody');
+  await d.tick();
+  assert.deepEqual(herdr.keys.at(-1), { name: 'cody', keys: ['enter'] });
+  assert.equal(herdr.prompts.filter((p) => p.name === 'cody').length, 0, 'the wake is not typed into the picker');
+  await d.tick();
+  assert.equal(herdr.prompts.filter((p) => p.name === 'cody').length, 1);
 });
 
 function wake(agent: string): void {
