@@ -34,7 +34,7 @@ command = ["sh", "bin/fabrik", "hook", "wake-focused"]
 id = "status"
 title = "fabrik status"
 placement = "popup"
-width = "80%"
-height = "70%"
+width = 72
+height = 14
 # Keep the popup open with the error when the command fails, instead of closing it at once.
 command = ["sh", "-c", "sh bin/fabrik hook status-pane || { printf '\\nPress Enter to close. '; read -r _; }"]

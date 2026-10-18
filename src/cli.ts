@@ -4,14 +4,14 @@ import { parseArgs } from 'node:util';
 import { askHuman, inbox, note, requireAgent, runDone, taskClaim, taskComment, taskCreate, taskRelease, taskShow, taskState, whoami } from './agent.ts';
 import { apply } from './apply.ts';
 import { herdrName, loadCompany, renderOrg } from './company.ts';
-import type { Company } from './company.ts';
 import { Daemon, daemonPid, wakeDir } from './daemon.ts';
 import { ADAPTERS } from './harness.ts';
 import { Herdr } from './herdr.ts';
 import { initCompany } from './init.ts';
-import { doctor, installService, installShim, readSkill, registerCompany, registeredCompanies, serviceName, startupHook } from './ops.ts';
+import { doctor, installService, installShim, readSkill, registerCompany, serviceName, startupHook } from './ops.ts';
 import { readSecrets, secretsPath, setSecret } from './secrets.ts';
-import { loadState, withState } from './state.ts';
+import { companyStatus, renderTable, sessionCompanies, statusPane } from './status.ts';
+import { withState } from './state.ts';
 import { FabrikError, writeJson } from './util.ts';
 import { join } from 'node:path';
 
@@ -76,50 +76,6 @@ async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const c of process.stdin) chunks.push(c as Buffer);
   return Buffer.concat(chunks).toString('utf8').trim();
-}
-
-async function status(company: Company): Promise<string> {
-  const state = loadState(company);
-  let live: Awaited<ReturnType<Herdr['agents']>> = [];
-  let herdrNote = '';
-  try {
-    live = await new Herdr(company.config.herdr.session).agents();
-  } catch (err) {
-    herdrNote = ` (herdr unreachable: ${(err as Error).message})`;
-  }
-  const pid = daemonPid(company);
-  const lines = [`${company.config.company.name} — ${company.root}`, `daemon: ${pid ? `running (pid ${pid})` : 'not running'}${herdrNote}`, ''];
-  lines.push('agent        title                status     runs  queue');
-  for (const a of company.agents) {
-    const s = state.agents[a.slug]!;
-    const l = live.find((x) => x.name === herdrName(company, a));
-    const st = !a.enabled ? 'disabled' : s.paused ? 'paused' : s.inflight ? 'running' : (l?.agent_status ?? 'offline');
-    lines.push(`${a.slug.padEnd(12)} ${a.title.slice(0, 20).padEnd(20)} ${st.padEnd(10)} ${String(s.runsToday).padStart(4)}  ${s.queue.map((q) => q.key).join(', ') || '-'}`);
-  }
-  return lines.join('\n');
-}
-
-function sessionCompanies(): Company[] {
-  const session = process.env.HERDR_SESSION || 'default';
-  return registeredCompanies().filter((e) => e.session === session).flatMap((e) => {
-    try { return [loadCompany(e.root)]; } catch { return []; }
-  });
-}
-
-/** Plugin popup: live status of this session's companies until q / Esc / Ctrl-C. */
-async function statusPane(): Promise<void> {
-  let stop = false;
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-    process.stdin.on('data', (d) => { if (['q', '\u001b', '\u0003'].includes(String(d))) stop = true; });
-  }
-  while (!stop) {
-    const companies = sessionCompanies();
-    const text = companies.length ? (await Promise.all(companies.map(status))).join('\n\n') : 'No fabrik company is bound to this herdr session. Run fabrik init / fabrik apply.';
-    process.stdout.write(`\u001b[2J\u001b[H${text}\n\n(q to close · refreshes every 5s)\n`);
-    for (let i = 0; i < 50 && !stop; i++) await new Promise((r) => setTimeout(r, 100));
-  }
-  process.exit(0);
 }
 
 /** Plugin action: queue a wake for the fabrik agent in the focused pane. */
@@ -189,11 +145,11 @@ async function main(argv: string[]): Promise<number> {
       throw new FabrikError('usage', 'fabrik shim install');
     case 'hook':
       if (sub === 'startup') { const done = await startupHook(); if (done.length) out(`fabrik: refreshed ${done.join(', ')}`); return 0; }
-      if (sub === 'status-pane') { await statusPane(); return 0; }
+      if (sub === 'status-pane') { await statusPane(); process.exit(0); }
       if (sub === 'wake-focused') { out(await wakeFocused()); return 0; }
       throw new FabrikError('usage', 'fabrik hook startup|status-pane|wake-focused');
 
-    case 'status': out(await status(company())); return 0;
+    case 'status': out(renderTable(await companyStatus(company()))); return 0;
     case 'org': out(renderOrg(company())); return 0;
     case 'models': {
       for (const [h, a] of Object.entries(ADAPTERS)) {
