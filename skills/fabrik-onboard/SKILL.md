@@ -43,66 +43,82 @@ Ask in short rounds of at most 4 questions. Offer defaults and keep moving.
 
 ## Propose
 
-Design the smallest org that covers the goal. Usually that is 2–5 agents with exactly one
-top agent (the CEO or orchestrator).
+Design the smallest org that covers the goal: usually 2–5 agents (more if the user asks), with
+exactly one top agent (the CEO or orchestrator). Fewer agents and mid-sized models protect the
+user's limits; they can turn the company up later.
 
-- **Orchestrator (CEO):** the strongest reasoning model the user has (claude `opus` or `fable`, codex
-  `gpt-6.1-sol`, grok `grok-4.7`), autonomy `medium`, timer `6h` or `off`.
-- **Builders (coding, ops):** claude `sonnet` or codex `gpt-6-sol`, autonomy `medium`.
+Recommend a model and effort per agent; the user adjusts both in the review popup.
+
+- **Orchestrator (CEO):** a capable mid-tier model (claude `sonnet`, codex `gpt-6-sol`, grok
+  `grok-4.7`), effort `medium`, timer `off`. Suggest `opus`/`fable`/`gpt-6.1-sol` only for complex
+  goals or when the user asks for the strongest model.
+- **Builders (coding, ops):** claude `sonnet` or codex `gpt-6-sol`, effort `medium`.
 - **Clerical work (summaries, drafts, triage):** a cheap model (claude `haiku`, codex `gpt-6-luna`,
-  grok `grok-4.7-build-fast`), autonomy `low`.
-- Hermes agents are planned for v0.2. Do not propose them yet.
-- Autonomy: `low` asks before every file edit and command (Codex: sandboxed, asks before leaving
-  the agent's folder); `medium` works without prompts inside its sandbox or safety classifier;
-  `high` disables permission prompts, so use it only if the user explicitly asks.
+  grok `grok-4.7-build-fast`), effort `low`.
+- Hermes agents are not supported yet. Do not propose them.
+- Leave out `autonomy` and the heartbeat caps: the company **gear** sets them. Set an agent's
+  `autonomy` only when the user asks for an exception (`high` disables permission prompts).
 - Each agent needs: slug (`^[a-z][a-z0-9_-]{0,31}$`, a short first name works well), name,
-  title, reports_to, harness, model, effort, autonomy, timer, and a remit (3–6 sentences on what it
-  owns and what it must not do).
+  title, reports_to, harness, model, effort, timer, and a remit (3–6 sentences on what it owns
+  and what it must not do).
 
-Show the org as a table and wait for the user to accept or change it.
+**Gear.** Recommend `steady` and explain it in one sentence each:
 
-## Write and create
+- `steady` protects the user's tokens and limits: agents ask before edits and commands, 2 work at
+  once, 15 runs per agent per day. Best for getting to know fabrik with small tasks.
+- `turbo` is more autonomous and faster: no prompts inside the sandbox, 4 at once, 60 runs per
+  agent per day, and noticeably more tokens. Switch any time with `fabrik gear turbo`.
 
-Write the proposal to `~/fabrik/proposals/<slug>.yaml` (create the folder), never into the
-current directory, which may be someone's repository:
+Show the org as a short table (slug, title, harness, model, effort, what it owns).
 
-```yaml
-company: { slug: acme, name: Acme Studio, human: Marton, mission: "...", goal: "...", constraints: "...", done: "..." }
-context:
-  stack: "Plane CE at http://plane.lan, Obsidian vault /mnt/vault/notes, Forgejo (later)"
-  inventory: "..."
-  processes: "..."
-  channels: "..."
-herdr: { session: default, workspace: acme }
-plane: { url: http://plane.lan, workspace: acme, projects: [ACME], key_env: PLANE_API_KEY }
-obsidian: { vault: /mnt/vault/notes, folder: Fabrik }
-heartbeat: { timer: off, max_runs_per_day: 20, max_concurrent: 2 }
-router: { unassigned: ada }
-agents:
-  - { slug: ada, name: Ada, title: CEO, reports_to: null, harness: claude, model: opus, effort: high, autonomy: medium, timer: 6h,
-      remit: "Owns strategy and the ticket backlog. Breaks goals into tickets for the team, reviews results, asks the human before spending money." }
-  - { slug: cody, name: Cody, title: Engineer, reports_to: ada, harness: codex, model: gpt-6-sol, autonomy: medium,
-      remit: "Builds and fixes software in the company repos. Never deploys to production without a done ticket from ada." }
-notes: "anything else the user said that matters"
-```
+## Write, review and create
 
-Then:
+1. Write the proposal to `~/fabrik/proposals/<slug>.yaml` (create the folder), never into the
+   current directory, which may be someone's repository:
 
-1. `fabrik init --from ~/fabrik/proposals/<slug>.yaml`. This creates `~/fabrik/<slug>/` and never
-   touches `~/AGENTS.md`.
-2. Show the user `PROPOSAL.md` and the path. Tell them how to store the Plane key, which only they
+   ```yaml
+   company: { slug: acme, name: Acme Studio, human: Marton, mission: "...", goal: "...", constraints: "...", done: "..." }
+   gear: steady
+   context:
+     stack: "Plane CE at http://plane.lan, Obsidian vault /mnt/vault/notes, Forgejo (later)"
+     inventory: "..."
+     processes: "..."
+     channels: "..."
+   herdr: { session: default, workspace: acme }
+   plane: { url: http://plane.lan, workspace: acme, projects: [ACME], key_env: PLANE_API_KEY }
+   obsidian: { vault: /mnt/vault/notes, folder: Fabrik }
+   router: { unassigned: ada }
+   agents:
+     - { slug: ada, name: Ada, title: CEO, reports_to: null, harness: claude, model: sonnet, effort: medium,
+         remit: "Owns strategy and the ticket backlog. Breaks goals into tickets for the team, reviews results, asks the human before spending money." }
+     - { slug: cody, name: Cody, title: Engineer, reports_to: ada, harness: codex, model: gpt-6-sol, effort: medium,
+         remit: "Builds and fixes software in the company repos. Never deploys to production without a done ticket from ada." }
+   notes: "anything else the user said that matters"
+   ```
+
+2. Let the user review it: run `fabrik review ~/fabrik/proposals/<slug>.yaml` and tell them a
+   popup opened in herdr where they can change each agent's model and effort (←→, `e`), switch
+   agents off (space), pick the gear (`g`) and accept with Enter. The command waits for them:
+   - exit 0, `accepted: …`: the proposal file now holds their choices; continue.
+   - exit 1, `cancelled`: ask what they want to change, edit the proposal, review again.
+   - exit 4, still open: run `fabrik review ~/fabrik/proposals/<slug>.yaml --wait` until it
+     returns 0 or 1. Do not edit the file meanwhile.
+3. `fabrik init --from ~/fabrik/proposals/<slug>.yaml`. This creates `~/fabrik/<slug>/` and never
+   touches `~/AGENTS.md`. Agents switched off in the review are created with `enabled: false`.
+4. Show the user `PROPOSAL.md` and the path. Tell them how to store the Plane key, which only they
    should type: `fabrik secret set PLANE_API_KEY --company ~/fabrik/<slug>`.
-3. `fabrik doctor --company ~/fabrik/<slug>` and fix what it reports.
-4. Only after an explicit yes: `fabrik apply --company ~/fabrik/<slug>`. A trust dialog for the new
+5. `fabrik doctor --company ~/fabrik/<slug>` and fix what it reports.
+6. Only after an explicit yes: `fabrik apply --company ~/fabrik/<slug>`. A trust dialog for the new
    folder may appear; ask the user before passing `--accept-trust`.
-5. Offer `fabrik service install` to start the heartbeat. Agents use the user's own skills,
-   memory, hooks and plugins; only the global instruction files stay out. Mention `isolate: true`
-   in `fabrik.yaml` for agents without the user's personal Claude Code setup. Explain how work reaches agents: add the
-   Plane label `agent:<slug>` to a ticket, write `@<slug>` in a comment, drop a note with
-   `to: <slug>` into `Fabrik/inbox/`, or run `fabrik wake <slug>`.
+7. Offer `fabrik service install` to start the heartbeat. Agents use the user's own skills,
+   memory, hooks and plugins; only the global instruction files stay out (`isolate: true` in
+   `fabrik.yaml` keeps their personal Claude Code setup out too). Explain how work reaches agents:
+   add the Plane label `agent:<slug>` to a ticket, write `@<slug>` in a comment, drop a note with
+   `to: <slug>` into `Fabrik/inbox/`, or run `fabrik wake <slug>`. `fabrik review` and
+   `fabrik gear` change models and the gear later; agents restart with them once idle.
 
 ## Known values (check live with `fabrik models`)
 
 - Claude: `opus`, `sonnet`, `haiku`, `fable`, or full IDs like `claude-sonnet-5-5`. Effort: low … max.
-- Codex: the slugs listed by `fabrik models codex`. Effort: low … max.
+- Codex: the slugs listed by `fabrik models codex`. Effort: low … xhigh.
 - Grok: `grok-4.7`, `grok-4.7-build-fast`, `grok-4.6`, `grok-4.5`. Effort: low … xhigh.
