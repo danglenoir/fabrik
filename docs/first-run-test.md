@@ -29,7 +29,7 @@ after onboarding: the CEO's first task *is* the test.
 | herdr: agents pane roles, plugin status popup, plugin wake action, session restart + resume, metadata re-apply | §5, §7 |
 | Safety: ask-human gate, open sub-tasks block `done`, injected instruction treated as data, global instruction files kept out | §3, §4.6, §6 |
 | Loop guard (agents waking each other), human questions closed automatically | §4 |
-| Pause / resume | §5 |
+| Pause / resume / stop | §5 |
 
 ## 0. Prerequisites (once, about 10 minutes, 0 tokens)
 
@@ -207,7 +207,7 @@ Do them in order. Wait for the agent to go idle between steps unless the step sa
     - [ ] The daemon log shows `context reset (/clear)` for ada and `(/new)` for cody and wren
       before their third wake.
 
-## 5. CLI checks (0 tokens, one wake)
+## 5. CLI checks (0 tokens, three short wakes)
 
 First **stop the daemon** (Ctrl-C in `board`). Every Plane change below would otherwise wake someone;
 because the test ticket ends up Done, the restarted daemon will ignore it.
@@ -233,6 +233,9 @@ Start `fabrik daemon` again.
 fabrik pause cody && fabrik wake cody --reason "should wait"
 fabrik status                                # after one tick: cody paused, queue: manual
 fabrik resume cody                           # cody wakes once
+fabrik wake ada --reason "write a 10-line poem about herdr, one fabrik note per line"
+fabrik stop ada                              # while ada works: interrupted, paused, work kept queued
+fabrik resume ada                            # ada continues with "continue after a stop"
 ```
 
 - [ ] Every command behaves as commented.
@@ -240,6 +243,8 @@ fabrik resume cody                           # cody wakes once
   `herdr plugin action invoke status --plugin fabrik`). The compact popup lists the three agents,
   their state, runs and queue, and the daemon state, in your herdr theme's colours.
 - [ ] Focus wren's tab and press the key bound to `fabrik.wake`. wren wakes with `manual wake from herdr`.
+- [ ] While wren works, press the key bound to `fabrik.stop`: its turn is interrupted, the popup shows it
+  paused, and `fabrik resume wren` continues the work.
 
 ## 6. Obsidian check (0 tokens)
 

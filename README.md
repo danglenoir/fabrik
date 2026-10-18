@@ -89,7 +89,8 @@ fabrik keeps the idea and drops the rest:
   `note` and `run done`. Comments are signed, so agents never wake themselves.
 - **Humans stay in charge:** money, outbound mail, credentials and new hires go through
   `fabrik ask-human`, which opens a Plane ticket labelled `human` and waits for your answer. Once
-  the agent has acted on it, fabrik closes the question.
+  the agent has acted on it, fabrik closes the question. You can talk to any agent in its tab,
+  `fabrik stop` it mid-turn and `fabrik resume` it when you are done correcting it.
 - **Your environment, your agents:** agents run with your own skills, memory, hooks, plugins and
   MCP servers, and get the company's paths as environment variables. Only your global instruction
   files (`~/AGENTS.md`, `~/.codex/AGENTS.md`) stay out, so they never compete with the company's.
@@ -131,7 +132,8 @@ npx skills add danglenoir/fabrik -g -a claude-code codex grok  # the onboarding 
    fabrik service install   # starts the heartbeat (systemd --user)
    ```
 5. **Bind the plugin's actions to keys** (optional). Add this to `~/.config/herdr/config.toml`,
-   then run `herdr server reload-config`:
+   then run `herdr server reload-config`. Any free key works; `herdr --default-config` lists the
+   ones herdr already uses.
    ```toml
    [[keys.command]]
    key = "prefix+f"
@@ -140,10 +142,16 @@ npx skills add danglenoir/fabrik -g -a claude-code codex grok  # the onboarding 
    description = "fabrik: company status"
 
    [[keys.command]]
-   key = "prefix+w"
+   key = "prefix+a"
    type = "plugin_action"
    command = "fabrik.wake"          # wake the agent in the focused pane
    description = "fabrik: wake this agent"
+
+   [[keys.command]]
+   key = "prefix+i"
+   type = "plugin_action"
+   command = "fabrik.stop"          # interrupt and pause the agent in the focused pane
+   description = "fabrik: stop this agent"
    ```
    Without a key, open the popup with `herdr plugin action invoke status --plugin fabrik`.
 
@@ -229,6 +237,7 @@ You are Cody, the Engineer of Acme Studio. …
 | `fabrik doctor` | Check Node, herdr, harnesses, models, Plane (states, membership, key scope), Obsidian and the daemon |
 | `fabrik status` · `org` · `models` | Show agents and queues, the org chart, available models |
 | `fabrik wake <slug>` · `pause` · `resume` | Control the heartbeat per agent |
+| `fabrik stop <slug>` | Interrupt the agent's turn, pause it, keep its work queued for `resume` |
 | `fabrik service install` · `daemon` | Run the heartbeat under systemd, or in the foreground |
 | `fabrik secret set KEY` | Store a secret outside the company folder |
 

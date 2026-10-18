@@ -30,6 +30,13 @@ description = "Queue a heartbeat for the fabrik agent in the focused pane"
 contexts = ["pane"]
 command = ["sh", "bin/fabrik", "hook", "wake-focused"]
 
+[[actions]]
+id = "stop"
+title = "fabrik: stop this agent"
+description = "Interrupt the focused fabrik agent, pause it and keep its work queued"
+contexts = ["pane"]
+command = ["sh", "bin/fabrik", "hook", "stop-focused"]
+
 [[panes]]
 id = "status"
 title = "fabrik status"

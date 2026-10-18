@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { askHuman, inbox, note, requireAgent, runDone, taskClaim, taskComment, taskCreate, taskRelease, taskShow, taskState, whoami } from './agent.ts';
 import { apply } from './apply.ts';
+import { pauseAgent, stopAgent } from './control.ts';
 import { herdrName, loadCompany, renderOrg } from './company.ts';
+import type { Company } from './company.ts';
 import { Daemon, daemonPid, wakeDir } from './daemon.ts';
 import { ADAPTERS } from './harness.ts';
 import { Herdr } from './herdr.ts';
@@ -11,7 +13,6 @@ import { initCompany } from './init.ts';
 import { doctor, installService, installShim, readSkill, registerCompany, serviceName, startupHook } from './ops.ts';
 import { readSecrets, secretsPath, setSecret } from './secrets.ts';
 import { companyStatus, renderTable, sessionCompanies, statusPane } from './status.ts';
-import { withState } from './state.ts';
 import { FabrikError, writeJson } from './util.ts';
 import { join } from 'node:path';
 
@@ -28,6 +29,7 @@ Setup
 Operate
   fabrik status | org | models [harness]
   fabrik wake <slug> [--reason TEXT] [--key KEY]
+  fabrik stop <slug>          interrupt its turn, pause it, keep the work queued
   fabrik pause <slug> | resume <slug>
   fabrik daemon [--once]
 
@@ -83,20 +85,35 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8').trim();
 }
 
-/** Plugin action: queue a wake for the fabrik agent in the focused pane. */
-async function wakeFocused(): Promise<string> {
+/** The fabrik agent in the focused herdr pane, for the plugin actions. */
+async function focusedAgent(): Promise<{ company: Company; slug: string } | null> {
   const pane = process.env.HERDR_PANE_ID;
-  if (!pane) return 'fabrik: no focused pane';
+  if (!pane) return null;
   const live = await new Herdr(process.env.HERDR_SESSION || 'default').agents();
   const agent = live.find((a) => a.pane_id === pane);
   for (const c of sessionCompanies()) {
     const def = c.agents.find((a) => herdrName(c, a) === agent?.name);
-    if (!def) continue;
-    writeJson(join(wakeDir(c), `${Date.now()}-${def.slug}.json`), { agent: def.slug, key: 'manual', reason: 'manual wake from herdr' });
-    await new Herdr(c.config.herdr.session).notify(`fabrik: wake queued for ${def.slug}`);
-    return `queued a wake for ${def.slug}`;
+    if (def) return { company: c, slug: def.slug };
   }
-  return 'fabrik: the focused pane is not a fabrik agent';
+  return null;
+}
+
+/** Plugin action: queue a wake for the fabrik agent in the focused pane. */
+async function wakeFocused(): Promise<string> {
+  const f = await focusedAgent();
+  if (!f) return 'fabrik: the focused pane is not a fabrik agent';
+  writeJson(join(wakeDir(f.company), `${Date.now()}-${f.slug}.json`), { agent: f.slug, key: 'manual', reason: 'manual wake from herdr' });
+  await new Herdr(f.company.config.herdr.session).notify(`fabrik: wake queued for ${f.slug}`);
+  return `queued a wake for ${f.slug}`;
+}
+
+/** Plugin action: stop the fabrik agent in the focused pane. */
+async function stopFocused(): Promise<string> {
+  const f = await focusedAgent();
+  if (!f) return 'fabrik: the focused pane is not a fabrik agent';
+  const result = await stopAgent(f.company, f.slug);
+  await new Herdr(f.company.config.herdr.session).notify(`fabrik: ${f.slug} stopped`, `fabrik resume ${f.slug} continues`);
+  return result;
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -153,7 +170,8 @@ async function main(argv: string[]): Promise<number> {
       if (sub === 'startup') { const done = await startupHook(); if (done.length) out(`fabrik: refreshed ${done.join(', ')}`); return 0; }
       if (sub === 'status-pane') { await statusPane(); process.exit(0); }
       if (sub === 'wake-focused') { out(await wakeFocused()); return 0; }
-      throw new FabrikError('usage', 'fabrik hook startup|status-pane|wake-focused');
+      if (sub === 'stop-focused') { out(await stopFocused()); return 0; }
+      throw new FabrikError('usage', 'fabrik hook startup|status-pane|wake-focused|stop-focused');
 
     case 'status': out(renderTable(await companyStatus(company()))); return 0;
     case 'org': out(renderOrg(company())); return 0;
@@ -174,18 +192,8 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case 'pause':
-    case 'resume': {
-      const c = company();
-      const slug = need(sub, 'agent slug');
-      await withState(c, (s) => {
-        const a = s.agents[slug];
-        if (!a) throw new FabrikError('unknown_agent', `no agent "${slug}"`);
-        a.paused = cmd === 'pause';
-        if (cmd === 'resume') a.failures = 0;
-      });
-      out(`${slug} ${cmd === 'pause' ? 'paused' : 'resumed'}`);
-      return 0;
-    }
+    case 'resume': out(await pauseAgent(company(), need(sub, 'agent slug'), cmd === 'pause')); return 0;
+    case 'stop': out(await stopAgent(company(), need(sub, 'agent slug'))); return 0;
     case 'daemon': await new Daemon(company()).run(o.once); return 0;
 
     case 'whoami': { const c = company(); out(whoami(c, requireAgent(c, o.as))); return 0; }

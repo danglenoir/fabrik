@@ -18,6 +18,8 @@ export interface HarnessAdapter {
   launchArgs(agent: AgentDef, company: Company): string[];
   /** Keystroke command that starts a fresh conversation. */
   resetCommand: string;
+  /** Keys that interrupt the current turn without leaving the harness. */
+  interruptKeys: string[];
   /** Known popups herdr may report as idle. Checked on screen before every wake. */
   dialogs: Dialog[];
   /** The folder-trust prompt shown on first start in a new directory. */
@@ -70,6 +72,7 @@ const claude: HarnessAdapter = {
     return args;
   },
   resetCommand: '/clear',
+  interruptKeys: ['esc'],
   dialogs: [
     { name: 'auto-mode-tip', pattern: /Teach auto mode about your environment/i, keys: ['esc'] },
     { name: 'external-imports', pattern: /Allow external CLAUDE\.md file imports/i, keys: null },
@@ -99,6 +102,7 @@ const codex: HarnessAdapter = {
     return args;
   },
   resetCommand: '/new',
+  interruptKeys: ['esc'],
   dialogs: [
     { name: 'update-prompt', pattern: /Update available[\s\S]*Skip until next version/i, keys: ['down', 'enter'] }, // "2. Skip"
     // `/new` in a git repository (every company is one) asks where to run; Enter keeps the current worktree.
@@ -130,6 +134,7 @@ const grok: HarnessAdapter = {
     return args;
   },
   resetCommand: '/new',
+  interruptKeys: ['esc'],
   dialogs: [],
   trust: { name: 'folder-trust', pattern: /trust this folder|Do you trust/i, keys: null },
   async listModels() {
@@ -146,6 +151,7 @@ const hermes: HarnessAdapter = {
     throw new FabrikError('unsupported_harness', 'hermes agents are planned for fabrik v0.2 (one Hermes profile per agent)');
   },
   resetCommand: '/new now',
+  interruptKeys: ['esc'],
   dialogs: [],
   trust: null,
   async listModels() {

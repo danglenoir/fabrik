@@ -20,6 +20,8 @@ On every wake, do this once, in order:
      with a comment, and do not take over its work.
    - `human answered`: read the answer on the question ticket and continue the task it was about.
      fabrik closes the question once you finish the run.
+   - `continue after a stop`: the human interrupted you on this ticket, and may have told you in
+     this chat what to change. Follow that, then continue the work.
 3. **Pick work** in this order: tickets already in progress and claimed by you, then tickets in
    review with new comments, then todo tickets. Take one or two, not everything.
 4. **Claim before working:** `fabrik task claim <KEY>`. If it says another agent holds the claim, leave it
