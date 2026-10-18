@@ -5,7 +5,7 @@ description: Interview the user and set up a fabrik agent company in herdr (org 
 
 # fabrik onboarding
 
-Goal: interview the user, propose an org of terminal agents, write `proposal.yaml`, and create
+Goal: interview the user, propose an org of terminal agents, write a proposal file, and create
 the company with `fabrik init`. Nothing starts until the user accepts: proposing a team does
 not authorize hiring it.
 
@@ -23,8 +23,14 @@ Ask in short rounds of at most 4 questions. Offer defaults and keep moving.
 1. **Company:** name, slug (lowercase, at most 16 characters), what it does, the first goal for the
    next weeks, hard constraints, and what "done" looks like for that goal.
 2. **Stack** (MVP supports Plane.so and Obsidian; record anything else as context for later):
-   - Plane: base URL, workspace slug, which project identifiers agents may work in. Ask whether a
-     dedicated Plane user exists for fabrik (recommended, because API keys have full permissions).
+   - Plane: ask for the URL of one project page (for example
+     `https://plane.example.com/acme/projects/…`). The base URL and the **workspace slug** (the
+     first path segment, not the project name) come from it. Then ask which project identifiers
+     agents may work in, and whether a dedicated Plane user exists for fabrik (recommended,
+     because API keys carry their user's full permissions).
+   - Each project needs the states **Todo**, **In Review** and **Blocked** next to the defaults
+     (add the last two in the Started group). Recommend making Todo the default state; tickets
+     in Backlog wake nobody until they move to Todo.
    - Obsidian: vault path. fabrik only writes below one folder (default `Fabrik`).
    - Other tools (CRM, mail, git, ...): note them, but do not configure them.
 3. **Inventory:** servers, services, repos and accounts the agents may touch. Mark anything that is off-limits.
@@ -46,7 +52,9 @@ top agent (the CEO or orchestrator).
 - **Clerical work (summaries, drafts, triage):** a cheap model (claude `haiku`, codex `gpt-6-luna`,
   grok `grok-4.7-build-fast`), autonomy `low`.
 - Hermes agents are planned for v0.2. Do not propose them yet.
-- Use `high` autonomy only if the user explicitly asks; it disables permission prompts.
+- Autonomy: `low` asks before every file edit and command (Codex: sandboxed, asks before leaving
+  the agent's folder); `medium` works without prompts inside its sandbox or safety classifier;
+  `high` disables permission prompts, so use it only if the user explicitly asks.
 - Each agent needs: slug (`^[a-z][a-z0-9_-]{0,31}$`, a short first name works well), name,
   title, reports_to, harness, model, effort, autonomy, timer, and a remit (3–6 sentences on what it
   owns and what it must not do).
@@ -55,7 +63,8 @@ Show the org as a table and wait for the user to accept or change it.
 
 ## Write and create
 
-Write `proposal.yaml` in the current directory:
+Write the proposal to `~/fabrik/proposals/<slug>.yaml` (create the folder), never into the
+current directory, which may be someone's repository:
 
 ```yaml
 company: { slug: acme, name: Acme Studio, human: Marton, mission: "...", goal: "...", constraints: "...", done: "..." }
@@ -79,13 +88,16 @@ notes: "anything else the user said that matters"
 
 Then:
 
-1. `fabrik init --from proposal.yaml`. This creates `~/fabrik/<slug>/` and never touches `~/AGENTS.md`.
+1. `fabrik init --from ~/fabrik/proposals/<slug>.yaml`. This creates `~/fabrik/<slug>/` and never
+   touches `~/AGENTS.md`.
 2. Show the user `PROPOSAL.md` and the path. Tell them how to store the Plane key, which only they
    should type: `fabrik secret set PLANE_API_KEY --company ~/fabrik/<slug>`.
 3. `fabrik doctor --company ~/fabrik/<slug>` and fix what it reports.
 4. Only after an explicit yes: `fabrik apply --company ~/fabrik/<slug>`. A trust dialog for the new
    folder may appear; ask the user before passing `--accept-trust`.
-5. Offer `fabrik service install` to start the heartbeat. Explain how work reaches agents: add the
+5. Offer `fabrik service install` to start the heartbeat. Agents ignore the user's personal
+   harness setup (Claude Code hooks and plugins, the global `~/.codex/AGENTS.md`); mention
+   `inherit_user_config: true` in `fabrik.yaml` if the user wants them to inherit it. Explain how work reaches agents: add the
    Plane label `agent:<slug>` to a ticket, write `@<slug>` in a comment, drop a note with
    `to: <slug>` into `Fabrik/inbox/`, or run `fabrik wake <slug>`.
 

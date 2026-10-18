@@ -13,6 +13,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/danglenoir/fabrik/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/danglenoir/fabrik/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/github/v/tag/danglenoir/fabrik?label=version&color=0a0a0a"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-b11226"></a>
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%E2%89%A524-0a0a0a">
   <img alt="herdr 0.9.3+" src="https://img.shields.io/badge/herdr-%E2%89%A50.9.3-0a0a0a">
@@ -82,20 +84,27 @@ fabrik keeps the idea and drops the rest:
 - **A heartbeat that stays out of the way:** event-driven wakes from Plane labels, comments,
   `@mentions`, Obsidian inbox notes or `fabrik wake`. Optional timers fire only when there is open
   work. The daemon enforces cooldowns, daily run caps, a company-wide concurrency limit and context
-  resets, and pauses an agent after repeated failures.
+  resets, stops agents from waking each other in loops, and pauses an agent after repeated failures.
 - **Agents speak fabrik:** a small CLI for `inbox`, `task claim/comment/state/create`, `ask-human`,
   `note` and `run done`. Comments are signed, so agents never wake themselves.
 - **Humans stay in charge:** money, outbound mail, credentials and new hires go through
-  `fabrik ask-human`, which opens a Plane ticket labelled `human` and waits for your answer.
+  `fabrik ask-human`, which opens a Plane ticket labelled `human` and waits for your answer. Once
+  the agent has acted on it, fabrik closes the question.
+- **Agents work for the company, not for your dotfiles:** they ignore your personal Claude Code
+  hooks and plugins and your global `~/.codex/AGENTS.md`, and get the company's paths as
+  environment variables.
 - **Survives restarts:** herdr resumes the agents and fabrik re-applies their roles and models.
 
 ## Requirements
 
 - [herdr](https://herdr.dev) 0.9.3 or newer.
-- Node.js 24 or newer. fabrik runs its TypeScript directly, with no build step.
+- Node.js 24 or newer. fabrik runs its TypeScript directly, with no build step, and finds Node 24
+  even when an older version (nvm, distro packages) comes first on your PATH.
 - At least one of Claude Code, Codex or Grok, logged in, with herdr's integration installed
   (`herdr integration install claude`, and so on).
-- For tasks: Plane (Community Edition or Cloud) and an API key. For notes: an Obsidian vault folder.
+- For tasks: Plane (Community Edition or Cloud) and an API key. Give each project the states
+  **In Review** and **Blocked** (Started group) next to the defaults, and preferably make **Todo**
+  the default state. For notes: an Obsidian vault folder.
 
 ## Install
 
@@ -106,10 +115,11 @@ npx skills add danglenoir/fabrik -g -a claude-code codex grok  # the onboarding 
 
 ## Quick start
 
-1. **Onboard.** In any agent tab in herdr, ask your agent to run the **fabrik-onboard** skill. It
-   interviews you and writes `proposal.yaml`.
-2. **Create the company.** The skill runs `fabrik init --from proposal.yaml`, which creates
-   `~/fabrik/<company>/`. Review `PROPOSAL.md` there.
+1. **Onboard.** In any agent tab in herdr, run `/fabrik-onboard` (or ask your agent to use the
+   **fabrik-onboard** skill). It interviews you and writes the proposal to
+   `~/fabrik/proposals/<company>.yaml`; you never have to write that file yourself.
+2. **Create the company.** The skill runs `fabrik init --from ~/fabrik/proposals/<company>.yaml`,
+   which creates `~/fabrik/<company>/`. Review `PROPOSAL.md` there.
 3. **Store the Plane key** (kept 0600 in `~/.config/fabrik/`, never in git):
    ```sh
    fabrik secret set PLANE_API_KEY
@@ -120,6 +130,22 @@ npx skills add danglenoir/fabrik -g -a claude-code codex grok  # the onboarding 
    fabrik apply             # opens the tabs and starts the agents
    fabrik service install   # starts the heartbeat (systemd --user)
    ```
+5. **Bind the plugin's actions to keys** (optional). Add this to `~/.config/herdr/config.toml`,
+   then run `herdr server reload-config`:
+   ```toml
+   [[keys.command]]
+   key = "prefix+f"
+   type = "plugin_action"
+   command = "fabrik.status"        # popup: agents, queues, daemon
+   description = "fabrik: company status"
+
+   [[keys.command]]
+   key = "prefix+w"
+   type = "plugin_action"
+   command = "fabrik.wake"          # wake the agent in the focused pane
+   description = "fabrik: wake this agent"
+   ```
+   Without a key, open the popup with `herdr plugin action invoke status --plugin fabrik`.
 
 Give an agent work in any of these ways:
 
@@ -153,6 +179,7 @@ plane:     { url: http://plane.lan, workspace: acme, projects: [ACME], key_env: 
 obsidian:  { vault: /path/to/vault, folder: Fabrik }
 heartbeat: { tick: 10s, timer: off, max_concurrent: 2, max_runs_per_day: 20, cooldown: 60s, rotate_after_runs: 15 }
 router:    { unassigned: ada }
+inherit_user_config: false   # true: agents also load your personal harness config (see below)
 ```
 
 ```markdown
@@ -170,13 +197,26 @@ heartbeat: { timer: off }
 You are Cody, the Engineer of Acme Studio. …
 ```
 
-`autonomy` maps to each harness's own permission flags:
+`autonomy` maps to each harness's own permission flags. The `fabrik` CLI itself never needs approval.
 
 | autonomy | Claude Code | Codex | Grok |
 |---|---|---|---|
-| low | `acceptEdits` | `workspace-write`, asks on request | `acceptEdits` |
-| medium | `auto` | `workspace-write`, never asks | `auto` |
-| high | `bypassPermissions` | no sandbox, no approvals | `bypassPermissions` |
+| low: asks before edits and commands | `default` | `workspace-write`, asks on request | `default` |
+| medium: no prompts for routine work | `auto` | `workspace-write`, never asks | `auto` |
+| high: no prompts at all | `bypassPermissions` | no sandbox, no approvals | `bypassPermissions` |
+
+### What every agent gets
+
+- **Environment:** `FABRIK_AGENT`, `FABRIK_COMPANY_DIR`, `FABRIK_DATA_DIR`, and with Obsidian
+  configured `FABRIK_VAULT` and `FABRIK_OBSIDIAN_DIR`. herdr does not keep them for agents it
+  resumes after a restart; the `fabrik` CLI works without them.
+- **The heartbeat skill** in the company folder (`.claude/skills/fabrik`, `.agents/skills/fabrik`),
+  refreshed by every `fabrik apply`.
+- **No personal config:** Claude agents start with `--setting-sources project,local`, so your own
+  Claude Code hooks, plugins and status line stay out. Codex agents use
+  `~/.config/fabrik/codex-home/<company>` as `CODEX_HOME`: symlinks to your `~/.codex` (login,
+  config, sessions) without your global `AGENTS.md`. Set `inherit_user_config: true` to turn this
+  off.
 
 ## CLI
 
@@ -184,7 +224,7 @@ You are Cody, the Engineer of Acme Studio. …
 |---|---|
 | `fabrik init --from proposal.yaml` | Create a company from an onboarding proposal |
 | `fabrik apply [--dry-run] [--accept-trust]` | Open tabs and start agents (idempotent) |
-| `fabrik doctor` | Check herdr, harnesses, models, Plane, Obsidian and the daemon |
+| `fabrik doctor` | Check Node, herdr, harnesses, models, Plane (states, membership, key scope), Obsidian and the daemon |
 | `fabrik status` · `org` · `models` | Show agents and queues, the org chart, available models |
 | `fabrik wake <slug>` · `pause` · `resume` | Control the heartbeat per agent |
 | `fabrik service install` · `daemon` | Run the heartbeat under systemd, or in the foreground |
@@ -192,6 +232,8 @@ You are Cody, the Engineer of Acme Studio. …
 
 Agents use: `fabrik whoami`, `inbox`, `task show|claim|release|comment|state|create`,
 `ask-human`, `note` and `run done`. `fabrik help heartbeat` prints the procedure they follow.
+Claiming a ticket marks who works on it without changing its `agent:` labels, and a ticket with
+open sub-tasks cannot be set to done without `--force`.
 
 ## Integrations
 
@@ -209,6 +251,7 @@ Agents use: `fabrik whoami`, `inbox`, `task show|claim|release|comment|state|cre
 - No permission bypass by default. `high` autonomy has to be set by hand, and `fabrik doctor` warns about it.
 - Secrets live in `~/.config/fabrik/<company>.env` (mode 0600), never in git or in prompts.
 - Ticket text, comments and notes are treated as data, not instructions.
+- Agents run without your personal harness hooks, plugins and global instructions.
 - fabrik only touches its own herdr workspace and its own folder in your vault.
 
 ## Development
@@ -226,6 +269,8 @@ fabrik's own config with `FABRIK_CONFIG_DIR`. Never override `XDG_*` for process
 real harnesses: Claude Code uses `XDG_DATA_HOME` to place its own binary.
 
 The design, the reasoning behind it and the verified viability notes are in [PLAN.md](PLAN.md).
+Changes are listed in [CHANGELOG.md](CHANGELOG.md); [CONTRIBUTING.md](CONTRIBUTING.md) describes
+commit messages, versioning and releases.
 
 ## Roadmap
 
@@ -236,8 +281,9 @@ The design, the reasoning behind it and the verified viability notes are in [PLA
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `npm test` and `npm run typecheck` before opening
-a PR, and describe how you tested anything that touches herdr or a harness.
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Please run
+`npm test` and `npm run typecheck` before opening a PR, and describe how you tested anything that
+touches herdr or a harness.
 
 ## License
 
