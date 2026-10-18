@@ -77,7 +77,12 @@ fabrik keeps the idea and drops the rest:
 ## Features
 
 - **Onboarding interview:** the `fabrik-onboard` skill asks about your company, stack, servers,
-  processes and channels, then proposes an org. Nothing starts until you accept it.
+  processes and channels, then proposes an org with a recommended model and effort per agent.
+  You adjust them in a review popup in herdr. Nothing starts until you accept it.
+- **Gears, steady by default:** `steady` protects your tokens and limits: agents ask before edits
+  and commands, and only a few work at once. `turbo` lets them work without prompts and in
+  parallel when you have the budget. Switch with `fabrik gear turbo`; agents pick up new settings
+  at their next idle moment.
 - **One command to staff the office:** `fabrik apply` opens one herdr tab per agent, starts each
   harness with its model, effort and permission level, shows role and model in herdr's agents pane,
   and introduces every agent once. Running it again changes nothing.
@@ -117,8 +122,22 @@ npx skills add danglenoir/fabrik -g -a claude-code codex grok  # the onboarding 
 ## Quick start
 
 1. **Onboard.** In any agent tab in herdr, run `/fabrik-onboard` (or ask your agent to use the
-   **fabrik-onboard** skill). It interviews you and writes the proposal to
-   `~/fabrik/proposals/<company>.yaml`; you never have to write that file yourself.
+   **fabrik-onboard** skill). It interviews you, writes the proposal to
+   `~/fabrik/proposals/<company>.yaml` (you never have to write that file yourself) and opens the
+   review popup:
+   ```
+    Acme Studio · review your team
+
+   ❯ ✔ ada   CEO       claude  ‹ sonnet ›      effort ‹ medium ›
+     ✔ cody  Engineer  codex   ‹ gpt-6-sol ›   effort ‹ medium ›
+     ✗ wren  Ops       grok    ‹ grok-4.7 ›    effort ‹ low ›
+
+     Gear  ● steady   protects your tokens and limits: agents ask before edits and
+                      commands, 2 work at once, 15 runs per agent per day
+           ○ turbo    more autonomous and faster: no prompts inside the sandbox, ...
+
+    ↑↓ agent · ←→ model · e effort · space on/off · g gear · enter accept · esc cancel
+   ```
 2. **Create the company.** The skill runs `fabrik init --from ~/fabrik/proposals/<company>.yaml`,
    which creates `~/fabrik/<company>/`. Review `PROPOSAL.md` there.
 3. **Store the Plane key** (kept 0600 in `~/.config/fabrik/`, never in git):
@@ -185,9 +204,10 @@ company:   { slug: acme, name: Acme Studio, human: Marton }
 herdr:     { session: default, workspace: acme }
 plane:     { url: http://plane.lan, workspace: acme, projects: [ACME], key_env: PLANE_API_KEY }
 obsidian:  { vault: /path/to/vault, folder: Fabrik }
-heartbeat: { tick: 10s, timer: off, max_concurrent: 2, max_runs_per_day: 20, cooldown: 60s, rotate_after_runs: 15 }
+gear:      steady  # steady | turbo; sets autonomy and the caps below unless you set them
+heartbeat: { tick: 10s, timer: off, cooldown: 60s, rotate_after_runs: 15 }   # max_concurrent, max_runs_per_day: from the gear
 router:    { unassigned: ada }
-isolate: false     # true: agents skip your personal Claude Code settings, hooks, plugins and skills
+isolate:   false   # true: agents skip your personal Claude Code settings, hooks, plugins and skills
 ```
 
 ```markdown
@@ -199,13 +219,22 @@ reports_to: ada       # null for the top agent
 harness: codex        # claude | codex | grok
 model: gpt-6-sol      # in the harness's own vocabulary; `fabrik models` lists them
 effort: medium
-autonomy: medium      # low | medium | high
+# autonomy: medium    # optional: low | medium | high; left out, the agent follows the gear
 heartbeat: { timer: off }
 ---
 You are Cody, the Engineer of Acme Studio. …
 ```
 
-`autonomy` maps to each harness's own permission flags. The `fabrik` CLI itself never needs approval.
+Agents follow the company gear (`steady`: low, `turbo`: medium) unless their AGENTS.md sets
+`autonomy`. Each level maps to the harness's own permission flags; the `fabrik` CLI itself never
+needs approval.
+
+| gear | autonomy | agents at once | runs per agent per day |
+|---|---|---|---|
+| `steady` (default) | low | 2 | 15 |
+| `turbo` | medium | 4 | 60 |
+
+Explicit `max_concurrent` and `max_runs_per_day` in `fabrik.yaml` override the gear.
 
 | autonomy | Claude Code | Codex | Grok |
 |---|---|---|---|
@@ -233,8 +262,10 @@ You are Cody, the Engineer of Acme Studio. …
 | Command | What it does |
 |---|---|
 | `fabrik init --from proposal.yaml` | Create a company from an onboarding proposal |
-| `fabrik apply [--dry-run] [--accept-trust]` | Open tabs and start agents (idempotent) |
+| `fabrik apply [--dry-run] [--accept-trust]` | Open tabs, start agents, restart idle agents whose settings changed (idempotent) |
 | `fabrik doctor` | Check Node, herdr, harnesses, models, Plane (states, membership, key scope), Obsidian and the daemon |
+| `fabrik review [PROPOSAL]` | Pick models, efforts and the gear, switch agents on or off (popup in herdr) |
+| `fabrik gear [steady\|turbo]` | Show or change the gear; agents restart with it once idle |
 | `fabrik status` · `org` · `models` | Show agents and queues, the org chart, available models |
 | `fabrik wake <slug>` · `pause` · `resume` | Control the heartbeat per agent |
 | `fabrik stop <slug>` | Interrupt the agent's turn, pause it, keep its work queued for `resume` |

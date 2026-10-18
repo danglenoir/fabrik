@@ -60,8 +60,8 @@ In a tab of the `fabtest` session, start Claude Code (any model) and say:
 > goal: complete ticket FAB-1; constraint: one-sentence answers, no other work.
 > Stack: Plane at `<your Plane URL>`, workspace `<slug>`, project `FAB`; Obsidian vault
 > `<vault path>`, folder `Fabrik-test`. Inventory, processes, channels: none.
-> herdr session `fabtest`, workspace `fabtest`.
-> Org, exactly these three, all effort low:
+> herdr session `fabtest`, workspace `fabtest`. Gear steady.
+> Org, exactly these three, all effort low, with these autonomy exceptions:
 > ada, CEO, claude haiku, autonomy medium, reports to nobody;
 > cody, Engineer, codex gpt-6-luna, autonomy medium, reports to ada;
 > wren, Ops, grok grok-4.7-build-fast, autonomy low, reports to ada, timer 5m;
@@ -72,6 +72,9 @@ In a tab of the `fabtest` session, start Claude Code (any model) and say:
 **Check**
 
 - [ ] The proposal was written to `~/fabrik/proposals/fabtest.yaml`, not into the current directory.
+- [ ] The skill ran `fabrik review` and a popup opened in herdr with the three agents and the gear.
+  Press → on ada (its model changes), ← to put it back, then Enter. The skill continues with
+  `accepted: gear steady; ada claude/haiku (low), …`.
 - [ ] `~/fabrik/fabtest/` exists with `fabrik.yaml`, `COMPANY.md`, `AGENTS.md`, `CLAUDE.md`, `ORG.md`, `PROPOSAL.md`, `agents/{ada,cody,wren}/AGENTS.md` and `.claude/skills/fabrik/SKILL.md`.
 - [ ] `~/fabrik/fabtest/CLAUDE.md` has the same content as `AGENTS.md` (it keeps `~/AGENTS.md` out).
 - [ ] `ORG.md` shows wren's timer as `5m`, and `<vault>/Fabrik-test/inbox/README.md` exists.
@@ -82,6 +85,7 @@ In a tab of the `fabtest` session, start Claude Code (any model) and say:
 
 ```yaml
 company: { slug: fabtest, name: Fabrik Test, human: Marton, mission: "Test fabrik itself", goal: "Complete ticket FAB-1", constraints: "One-sentence answers, no other work" }
+gear: steady
 herdr: { session: fabtest, workspace: fabtest }
 plane: { url: <your Plane URL>, workspace: <slug>, projects: [FAB], key_env: PLANE_API_KEY, poll: 20s }
 obsidian: { vault: <vault path>, folder: Fabrik-test }
@@ -233,6 +237,7 @@ Start `fabrik daemon` again.
 fabrik pause cody && fabrik wake cody --reason "should wait"
 fabrik status                                # after one tick: cody paused, queue: manual
 fabrik resume cody                           # cody wakes once
+fabrik gear                                  # "gear steady: protects your tokens and limits: …"
 fabrik wake ada --reason "write a 10-line poem about herdr, one fabrik note per line"
 fabrik stop ada                              # while ada works: interrupted, paused, work kept queued
 fabrik resume ada                            # ada continues with "continue after a stop"
@@ -245,6 +250,10 @@ fabrik resume ada                            # ada continues with "continue afte
 - [ ] Focus wren's tab and press the key bound to `fabrik.wake`. wren wakes with `manual wake from herdr`.
 - [ ] While wren works, press the key bound to `fabrik.stop`: its turn is interrupted, the popup shows it
   paused, and `fabrik resume wren` continues the work.
+- [ ] Run `fabrik review` in the `board` tab, change cody's effort with `e`, press Enter. Once cody is
+  idle, the daemon log shows `cody: new launch settings, restarting` and cody's tab shows a fresh
+  Codex session with the new effort. Run `fabrik review` again to put the effort back (one more
+  restart).
 
 ## 6. Obsidian check (0 tokens)
 
