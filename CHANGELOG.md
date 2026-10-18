@@ -6,6 +6,32 @@ All notable changes to fabrik are documented in this file. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
+fabrik now starts frugal and lets you turn it up: new users explore with small tasks on modest
+limits, and switch to turbo when they have the budget.
+
+### Added
+
+- Gears: `gear: steady | turbo` in `fabrik.yaml`, `steady` by default. `steady` protects tokens
+  and limits (agents ask before edits and commands, 2 at once, 15 runs per agent per day);
+  `turbo` runs agents without prompts inside the sandbox, 4 at once, 60 runs per day.
+  `fabrik gear [steady|turbo]` shows or changes it.
+- `fabrik review [PROPOSAL]`: a picker for each agent's model and effort, switching agents on or
+  off, and the gear. Inside herdr it opens as a popup; in a terminal it draws in place. It edits
+  an onboarding proposal before `fabrik init`, or a running company.
+- Agents restart with new launch settings (model, effort, gear) once they are idle: `fabrik apply`
+  does it right away, the daemon rolls changes through the company one agent per tick. Agents
+  switched off (`enabled: false`) quit once idle and are never woken.
+- The daemon reloads `fabrik.yaml` and the agent files on every tick.
+
+### Changed
+
+- Onboarding recommends mid-tier models (sonnet, gpt-6-sol, grok-4.7) and the smallest team,
+  recommends the steady gear, and opens the review popup before `fabrik init`.
+- Agents without an `autonomy` of their own follow the gear; `init` no longer writes a default
+  autonomy. Explicit `max_concurrent` and `max_runs_per_day` still override the gear.
+
 ## [0.2.0] - 2026-10-18
 
 The first end-to-end run with real Claude Code, Codex and Grok agents against a live Plane
@@ -80,6 +106,7 @@ First public release.
   `note`, `run done`.
 - Claude Code, Codex and Grok adapters; herdr plugin with a status popup and a wake action.
 
-[Unreleased]: https://github.com/danglenoir/fabrik/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/danglenoir/fabrik/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/danglenoir/fabrik/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/danglenoir/fabrik/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/danglenoir/fabrik/releases/tag/v0.1.0
