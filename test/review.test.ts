@@ -2,18 +2,25 @@ import { strict as assert } from 'node:assert';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { parse, stringify } from 'yaml';
+import { parse } from 'yaml';
 import { loadCompany } from '../src/company.ts';
 import { companyTarget, keyAction, proposalTarget, renderReview, summary, update } from '../src/review.ts';
 import type { Review } from '../src/review.ts';
-import { makeCompany, proposal, tmp } from './helpers.ts';
+import { makeCompany, tmp } from './helpers.ts';
 
 const plain = (s: string) => s.replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '');
 const models = async (h: string) => ({ claude: ['haiku', 'sonnet', 'opus'], codex: ['gpt-6-luna', 'gpt-6-sol'], grok: ['grok-4.7'] } as Record<string, string[]>)[h] ?? null;
 
+/** A proposal as the onboarding skill writes it: agents as one-line flow maps. */
 function proposalFile(): string {
   const path = join(tmp('fabrik-review-'), 'acme.yaml');
-  writeFileSync(path, `# from the onboarding interview\n${stringify(proposal())}`);
+  writeFileSync(path, `# from the onboarding interview
+company: { slug: acme, name: Acme Studio, human: Marton }
+router: { unassigned: ada }
+agents:
+  - { slug: ada, name: Ada, title: CEO, reports_to: null, harness: claude, model: haiku, remit: "Owns the backlog." }
+  - { slug: cody, name: Cody, title: Engineer, reports_to: ada, harness: codex, model: gpt-6-luna, remit: "Writes code." }
+`);
   return path;
 }
 
@@ -81,6 +88,8 @@ test('accepting writes the proposal in place and keeps its comments', async () =
   assert.equal(saved.agents[0].model, 'sonnet');
   assert.equal(saved.agents[1].enabled, false);
   assert.equal(saved.agents[0].remit, 'Owns the backlog.', 'everything else untouched');
+  assert.match(text, /^company: .*\ngear: turbo\n/m, 'a new gear key goes right after company');
+  assert.doesNotMatch(text, /^ +- \{/m, 'edited agents are written as block mappings');
 });
 
 test('reviewing a running company edits agent files and the gear', async () => {

@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { parseDocument } from 'yaml';
+import { isMap, parseDocument } from 'yaml';
 import { GEAR_NAMES, GEARS, loadCompany } from './company.ts';
 import type { Company, Gear, Harness } from './company.ts';
-import { setAgentFields, setGear } from './edit.ts';
+import { setAgentFields, setGear, setTopLevel } from './edit.ts';
 import { ADAPTERS } from './harness.ts';
 import { Herdr } from './herdr.ts';
 import { FabrikError, readJson, sleep, writeFileAtomic, writeJson } from './util.ts';
@@ -193,8 +193,11 @@ export function proposalTarget(path: string, list: ModelLister = harnessModels):
     },
     save(r) {
       const doc = parseDocument(readFileSync(file, 'utf8'));
-      doc.set('gear', r.gear);
+      setTopLevel(doc, 'gear', r.gear);
       r.agents.forEach((a, i) => {
+        // An edited `{ … }` entry would be re-printed as a sprawling flow map; write it as a block.
+        const node = doc.getIn(['agents', i], true);
+        if (isMap(node)) node.flow = false;
         doc.setIn(['agents', i, 'model'], a.model);
         doc.setIn(['agents', i, 'effort'], a.effort);
         if (a.enabled) doc.deleteIn(['agents', i, 'enabled']);

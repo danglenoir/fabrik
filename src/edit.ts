@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseDocument } from 'yaml';
+import { isMap, isScalar, parseDocument } from 'yaml';
+import type { Document } from 'yaml';
 import { GEAR_NAMES } from './company.ts';
 import type { Company, Gear } from './company.ts';
 import { FabrikError, writeFileAtomic } from './util.ts';
@@ -10,11 +11,20 @@ import { FabrikError, writeFileAtomic } from './util.ts';
  * They go through the YAML document model so comments and key order survive.
  */
 
+/** Set a top-level key; a new key goes right after `after` instead of at the end of the file. */
+export function setTopLevel(doc: Document, key: string, value: unknown, after = 'company'): void {
+  if (doc.has(key) || !isMap(doc.contents)) { doc.set(key, value); return; }
+  const items = doc.contents.items;
+  const at = items.findIndex((p) => isScalar(p.key) && p.key.value === after);
+  doc.set(key, value);
+  if (at >= 0) items.splice(at + 1, 0, items.pop()!);
+}
+
 export function setGear(company: Company, gear: string): Gear {
   if (!GEAR_NAMES.includes(gear as Gear)) throw new FabrikError('usage', `gear must be ${GEAR_NAMES.join(' or ')}`);
   const path = join(company.root, 'fabrik.yaml');
   const doc = parseDocument(readFileSync(path, 'utf8'));
-  doc.set('gear', gear);
+  setTopLevel(doc, 'gear', gear);
   writeFileAtomic(path, doc.toString());
   return gear as Gear;
 }
