@@ -2,7 +2,27 @@
   "name": "fabrik",
   "version": "0.1.0",
   "description": "Run an AI-agent company in herdr: org chart, heartbeats, Plane + Obsidian.",
+  "keywords": [
+    "herdr",
+    "herdr-plugin",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "grok",
+    "plane",
+    "obsidian",
+    "cli"
+  ],
+  "homepage": "https://www.skape.io/fabrik",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danglenoir/fabrik.git"
+  },
+  "bugs": {
+    "url": "https://github.com/danglenoir/fabrik/issues"
+  },
   "license": "Apache-2.0",
+  "author": "skape.io (https://www.skape.io)",
   "private": true,
   "type": "module",
   "engines": {

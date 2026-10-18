@@ -9,6 +9,7 @@
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
     "skipLibCheck": true,
     "types": ["node"]
   },

@@ -42,6 +42,7 @@ Agents (run from agents/<slug>/, or pass --as <slug>)
   fabrik run done --summary "<text>"
 
   fabrik help heartbeat       the procedure agents follow on every wake
+  fabrik version | --version
 Global: --company DIR (default: nearest fabrik.yaml above the current directory)`;
 
 const OPTIONS = {
@@ -49,8 +50,12 @@ const OPTIONS = {
   'dry-run': { type: 'boolean' }, 'accept-trust': { type: 'boolean' }, only: { type: 'string' }, once: { type: 'boolean' },
   reason: { type: 'string' }, key: { type: 'string' }, as: { type: 'string' }, assign: { type: 'string' }, parent: { type: 'string' },
   body: { type: 'string' }, project: { type: 'string' }, task: { type: 'string' }, summary: { type: 'string' },
-  json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
+  json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
 } as const;
+
+function packageVersion(): string {
+  return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+}
 
 function need(value: string | undefined, what: string): string {
   if (!value) throw new FabrikError('usage', `missing ${what} (see fabrik --help)`);
@@ -97,6 +102,7 @@ async function wakeFocused(): Promise<string> {
 async function main(argv: string[]): Promise<number> {
   const { values: o, positionals: p } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true, strict: true });
   const [cmd, sub, ...rest] = p;
+  if (o.version) { console.log(packageVersion()); return 0; }
   if (o.help || !cmd || cmd === 'help' && !sub) { console.log(HELP); return 0; }
   const out = (s: string) => console.log(s);
   const company = () => loadCompany(o.company ?? process.cwd());
@@ -200,7 +206,7 @@ async function main(argv: string[]): Promise<number> {
     case 'run':
       if (sub === 'done') { const c = company(); out(runDone(c, requireAgent(c, o.as), need(o.summary ?? rest.join(' '), '--summary'))); return 0; }
       throw new FabrikError('usage', 'fabrik run done --summary "<text>"');
-    case 'version': out(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0;
+    case 'version': out(packageVersion()); return 0;
     default:
       throw new FabrikError('usage', `unknown command "${cmd}" (see fabrik --help)`);
   }

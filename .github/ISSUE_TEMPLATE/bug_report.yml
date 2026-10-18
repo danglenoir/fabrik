@@ -1,0 +1,24 @@
+name: Bug report
+description: Something in fabrik does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from the daemon log, `.fabrik/runs.jsonl` and `.fabrik/events.jsonl`, or `fabrik doctor`. Remove API keys and private URLs.
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Output of `fabrik version`, `herdr --version`, `node --version`, and the harness versions involved.
+    validations:
+      required: true
