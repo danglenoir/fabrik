@@ -89,7 +89,7 @@ test('ask-human creates a human ticket, registers the requester and writes atten
   const q = fake.issues.at(-1)!;
   assert.deepEqual(q.labels, [fake.label('human')]);
   assert.equal(loadState(company).plane.askHuman[q.id], 'cody');
-  assert.match(readFileSync(join(vault, 'Fabrik', 'attention.md'), 'utf8'), /cody asks: May I buy a domain/);
+  assert.match(readFileSync(join(vault, 'Fabrik', 'attention.md'), 'utf8'), /cody asks \(ACME-\d+\): May I buy a domain/);
 });
 
 test('journal notes and run reports', () => {
@@ -229,6 +229,68 @@ test('daemon: the codex worktree picker after /new is answered before the wake',
   assert.equal(herdr.prompts.filter((p) => p.name === 'cody').length, 0, 'the wake is not typed into the picker');
   await d.tick();
   assert.equal(herdr.prompts.filter((p) => p.name === 'cody').length, 1);
+});
+
+test('task state done refuses while sub-tasks are open; questions to the human do not count', async () => {
+  const parent = fake.addIssue('Launch', { labels: ['agent:ada'] });
+  const key = `ACME-${parent.sequence_id}`;
+  const child = fake.addIssue('Write the copy', { labels: ['agent:cody'], parent: parent.id });
+  fake.addIssue('Question from Ada: budget?', { labels: ['human'], parent: parent.id });
+  await assert.rejects(taskState(company, ada(), key, 'done'), new RegExp(`open sub-tasks: ACME-${child.sequence_id} \\(Todo\\)\\. Finish`));
+  assert.match(await taskState(company, ada(), key, 'done', { force: true }), /-> Done/);
+});
+
+test('a claim is not an assignment: labels stay, the inbox still lists the ticket', async () => {
+  const issue = fake.addIssue('Triage: assign this to nobody');
+  const key = `ACME-${issue.sequence_id}`;
+  await taskClaim(company, ada(), key);
+  assert.deepEqual(issue.labels, [], 'no agent:ada label');
+  assert.match(await inbox(company, ada()), new RegExp(`${key} .*\\[claimed by you\\]`));
+});
+
+test('daemon: closing a ticket in Plane releases its claim', async () => {
+  const herdr = new FakeHerdr();
+  herdr.addAgent('ada');
+  herdr.addAgent('cody');
+  const d = daemon(herdr);
+  await reset();
+  const issue = fake.addIssue('Closed by the human', { labels: ['agent:cody'] });
+  const key = `ACME-${issue.sequence_id}`;
+  assert.ok(takeClaim(company, key, 'cody'));
+  fake.setState(issue, 'Done');
+  await forcePoll(d);
+  assert.equal(claimHolder(company, key), null);
+});
+
+test('daemon: an answered question is closed once the asker has handled it', async () => {
+  const herdr = new FakeHerdr();
+  herdr.addAgent('ada');
+  const codyLive = herdr.addAgent('cody');
+  const d = daemon(herdr);
+  await reset();
+  const r = await askHuman(company, cody(), 'May I rename the repo?');
+  const q = fake.issues.at(-1)!;
+  const key = `ACME-${q.sequence_id}`;
+  assert.match(r, new RegExp(key));
+  assert.match(readFileSync(join(vault, 'Fabrik', 'attention.md'), 'utf8'), new RegExp(`- \\[ \\] .*cody asks \\(${key}\\): May I rename`));
+
+  fake.addComment(q, 'yes, go ahead');
+  await forcePoll(d);
+  const woken = herdr.prompts.filter((p) => p.name === 'cody');
+  assert.equal(woken.length, 1);
+  assert.match(woken[0]!.text, new RegExp(`${key}: human answered`));
+
+  codyLive.agent_status = 'working';
+  await d.tick();
+  codyLive.agent_status = 'idle';
+  runDone(company, cody(), 'renamed it');
+  await d.tick();
+  assert.equal(q.state, fake.state('Done'), 'question ticket closed');
+  assert.match(readFileSync(join(vault, 'Fabrik', 'attention.md'), 'utf8'), new RegExp(`- \\[x\\] .*\\(${key}\\)`));
+  assert.equal(loadState(company).plane.askHuman[q.id], undefined);
+
+  await forcePoll(d);
+  assert.equal(herdr.prompts.filter((p) => p.name === 'cody').length, 1, 'closing it does not wake cody again');
 });
 
 function wake(agent: string): void {

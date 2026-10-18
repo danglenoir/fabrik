@@ -33,6 +33,7 @@ export function mentions(company: Company, text: string): string[] {
 export interface DiffContext {
   snaps: Record<string, IssueSnap>;
   askHuman: Record<string, string>;
+  claims?: Record<string, string>; // ticket key -> agent holding the claim
 }
 
 /**
@@ -56,15 +57,18 @@ export function diffIssue(company: Company, prev: IssueSnap | undefined, issue: 
     for (const slug of now) out.push({ agent: slug, key: issue.key, reason: 'reopened' });
   }
 
+  // Whoever claimed the ticket follows its comments too, labelled or not.
+  const claimant = ctx.claims?.[issue.key];
+  const followers = claimant && !now.includes(claimant) ? [...now, claimant] : now;
   for (const c of newComments) {
     const author = commentAuthor(c);
     if (active) {
-      for (const slug of now) {
+      for (const slug of followers) {
         if (slug !== author) out.push({ agent: slug, key: issue.key, reason: author ? `comment from ${author}` : 'comment from a human' });
       }
     }
     for (const slug of mentions(company, c.text)) {
-      if (slug !== author && !now.includes(slug)) out.push({ agent: slug, key: issue.key, reason: `mentioned by ${author ?? 'a human'}` });
+      if (slug !== author && !followers.includes(slug)) out.push({ agent: slug, key: issue.key, reason: `mentioned by ${author ?? 'a human'}` });
     }
     const requester = ctx.askHuman[issue.id];
     if (requester && !author) out.push({ agent: requester, key: issue.key, reason: 'human answered' });

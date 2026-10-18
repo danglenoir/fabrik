@@ -3,21 +3,23 @@ import { join } from 'node:path';
 import { herdrName } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
 import { locateAgent, reapplyMetadata } from './apply.ts';
+import { allClaims, dropClaim } from './claims.ts';
 import { adapterFor } from './harness.ts';
 import { Herdr } from './herdr.ts';
 import type { HerdrAgent } from './herdr.ts';
-import { appendAttention, scanInbox, writeStatusCard } from './obsidian.ts';
+import { appendAttention, resolveAttention, scanInbox, writeStatusCard } from './obsidian.ts';
 import { Plane } from './plane.ts';
 import type { PlaneComment } from './plane.ts';
 import { diffIssue, enqueue, limitAgentChatter, wakeText } from './rules.ts';
 import type { WakeEvent } from './rules.ts';
 import { getSecret } from './secrets.ts';
 import { loadState, logEvent, logRun, reportPath, withState } from './state.ts';
-import type { AgentState, CompanyState } from './state.ts';
+import type { AgentState, CompanyState, InflightRun } from './state.ts';
 import { FabrikError, log, readJson, shortId, sleep, today } from './util.ts';
 
 const STALL_MS = 120_000;
 const MAX_ITEMS_PER_WAKE = 5;
+const CLOSED = new Set(['completed', 'cancelled']);
 
 export function daemonLockPath(company: Company): string {
   return join(company.stateDir, 'daemon.lock');
@@ -79,6 +81,8 @@ export class Daemon {
   plane: Plane | null;
   private metadataApplied = false;
   private lastLiveCount = -1;
+  /** Human questions whose answer an agent has handled; closed in Plane after the state lock is released. */
+  private answered: string[] = [];
 
   constructor(company: Company) {
     this.company = company;
@@ -94,6 +98,7 @@ export class Daemon {
     const bootstrap = state.plane.hwm === null;
     const since = state.plane.hwm ? new Date(Date.parse(state.plane.hwm) - 10_000).toISOString() : null;
     const events: WakeEvent[] = [];
+    const claims = allClaims(this.company);
     let hwm = state.plane.hwm;
     for (const project of cfg.projects) {
       const issues = await this.plane.issuesUpdatedSince(project, since, bootstrap ? 20 : 4);
@@ -110,12 +115,17 @@ export class Daemon {
           state.plane.seenComments[issue.id] = comments.map((c) => c.id).slice(-200);
         }
         if (!bootstrap && !unchanged) {
-          const { kept, dropped } = limitAgentChatter(diffIssue(this.company, prev, issue, fresh, { snaps: state.plane.snaps, askHuman: state.plane.askHuman }), state.plane.chatter, Date.now());
+          const { kept, dropped } = limitAgentChatter(diffIssue(this.company, prev, issue, fresh, { snaps: state.plane.snaps, askHuman: state.plane.askHuman, claims }), state.plane.chatter, Date.now());
           events.push(...kept);
           for (const ev of dropped) {
             log(`loop guard: not waking ${ev.agent} for ${ev.key} (${ev.reason}); agents woke each other too often on this ticket`);
             logEvent(this.company, { type: 'wake_dropped', guard: 'agent chatter', ...ev });
           }
+        }
+        if (CLOSED.has(issue.stateGroup)) {
+          // Closed in Plane, possibly by a human: nobody holds the ticket any more.
+          if (claims[issue.key] && dropClaim(this.company, issue.key, null, true)) log(`${issue.key}: closed, released ${claims[issue.key]}'s claim`);
+          if (state.plane.askHuman[issue.id]) resolveAttention(this.company, `(${issue.key})`);
         }
         state.plane.snaps[issue.id] = { key: issue.key, labels: issue.labels, stateGroup: issue.stateGroup, parent: issue.parent, updatedAt: issue.updatedAt };
       }
@@ -183,6 +193,7 @@ export class Daemon {
       s.failures = reported ? 0 : s.failures + 1;
       s.inflight = null;
       s.lastRunEnd = now;
+      if (reported) this.noteAnswered(run);
       if (s.failures >= 3) {
         s.paused = true;
         this.escalate(agent, 'paused after 3 runs without a `fabrik run done` report; check the tab, then `fabrik resume ' + agent.slug + '`');
@@ -207,6 +218,29 @@ export class Daemon {
       s.paused = true;
       s.failures++;
       this.escalate(agent, `run ${run.runId} exceeded ${Math.round(this.company.config.heartbeat.runTimeoutMs / 60_000)} min; agent paused (not killed)`);
+    }
+  }
+
+  /** Remember human questions this run handled, so tickets and attention lines get closed. */
+  private noteAnswered(run: InflightRun): void {
+    for (const item of run.items) if (item.reasons.includes('human answered')) this.answered.push(item.key);
+  }
+
+  /** Close answered `human` tickets in Plane and tick their attention lines. */
+  async closeAnswered(): Promise<void> {
+    const keys = this.answered.splice(0);
+    if (!keys.length || !this.plane) return;
+    for (const key of keys) {
+      try {
+        const issue = await this.plane.issue(key);
+        // Forget the question first, so closing it does not wake the agent again.
+        await withState(this.company, (s) => { delete s.plane.askHuman[issue.id]; });
+        if (!CLOSED.has(issue.stateGroup)) await this.plane.update(issue, { state: (await this.plane.stateFor(issue.projectId, 'done')).id });
+        resolveAttention(this.company, `(${key})`);
+        log(`${key}: answer handled, question closed`);
+      } catch (err) {
+        log(`${key}: could not close the answered question: ${(err as Error).message}`);
+      }
     }
   }
 
@@ -335,6 +369,7 @@ export class Daemon {
         });
       }
     });
+    await this.closeAnswered();
   }
 
   async run(once = false): Promise<void> {

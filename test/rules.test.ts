@@ -33,6 +33,11 @@ test('comments wake the assignee but not its own comments', () => {
   assert.equal(diffIssue(company, prev, now, [comment('fabrik:ada looks good')], ctx)[0]?.reason, 'comment from ada');
 });
 
+test('the agent holding the claim follows comments on an unlabelled ticket', () => {
+  const ev = diffIssue(company, snap(), issue(), [comment('please hurry')], { snaps: {}, askHuman: {}, claims: { 'ACME-1': 'ada' } });
+  assert.deepEqual(ev, [{ agent: 'ada', key: 'ACME-1', reason: 'comment from a human' }]);
+});
+
 test('@mentions wake other agents', () => {
   assert.deepEqual(mentions(company, 'hey @ada and @cody, not @nobody or mail@ada'), ['ada', 'cody']);
   const ev = diffIssue(company, snap({ labels: ['agent:cody'] }), issue({ labels: ['agent:cody'] }), [comment('fabrik:cody @ada can you decide?')], ctx);

@@ -34,9 +34,25 @@ export function appendAttention(company: Company, text: string, now = new Date()
   const root = fabrikFolder(company);
   if (!root) return null;
   const path = join(root, 'attention.md');
-  append(path, '---\ntags: [fabrik/attention]\n---\n\n# Needs your attention\n\nNewest at the bottom. Delete lines once handled.\n\n',
+  append(path, '---\ntags: [fabrik/attention]\n---\n\n# Needs your attention\n\nNewest at the bottom. fabrik ticks a question once it is handled; delete lines whenever you like.\n\n',
     `- [ ] ${now.toISOString().slice(0, 16).replace('T', ' ')} ${text.replace(/\n+/g, ' ')}`);
   return path;
+}
+
+/** Tick the open attention lines that contain `marker` (e.g. "(ACME-12)"). Returns how many changed. */
+export function resolveAttention(company: Company, marker: string): number {
+  const root = fabrikFolder(company);
+  if (!root) return 0;
+  const path = join(root, 'attention.md');
+  if (!existsSync(path)) return 0;
+  let n = 0;
+  const text = readFileSync(path, 'utf8').split('\n').map((line) => {
+    if (!line.startsWith('- [ ] ') || !line.includes(marker)) return line;
+    n++;
+    return `- [x] ${line.slice(6)}`;
+  }).join('\n');
+  if (n) writeFileAtomic(path, text);
+  return n;
 }
 
 export interface StatusCard {

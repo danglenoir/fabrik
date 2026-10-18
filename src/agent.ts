@@ -47,7 +47,7 @@ export async function inbox(company: Company, agent: AgentDef): Promise<string> 
     const mine: PlaneIssue[] = [];
     for (const project of cfg.projects) {
       for (const i of await plane.issuesUpdatedSince(project, null, 4)) {
-        if (i.labels.includes(label) && i.stateGroup in rank) mine.push(i);
+        if ((i.labels.includes(label) || claimHolder(company, i.key) === agent.slug) && i.stateGroup in rank) mine.push(i);
       }
     }
     mine.sort((a, b) => (rank[a.stateGroup]! - rank[b.stateGroup]!) || b.updatedAt.localeCompare(a.updatedAt));
@@ -91,10 +91,9 @@ export async function taskClaim(company: Company, agent: AgentDef, key: string):
   if (!takeClaim(company, issue.key, agent.slug)) {
     throw new FabrikError('claimed', `${issue.key} is claimed by ${claimHolder(company, issue.key)}; pick other work`);
   }
-  const label = (company.config.plane!.agentLabelPrefix) + agent.slug;
-  const labels = issue.labels.includes(label) ? issue.labels : [...issue.labels, label];
+  // A claim is not an assignment: the agent:<slug> labels stay as they are.
   const state = await plane.stateFor(issue.projectId, 'in_progress');
-  await plane.update(issue, { state: state.id, labels });
+  await plane.update(issue, { state: state.id });
   return `claimed ${issue.key} (${state.name})`;
 }
 
@@ -109,12 +108,19 @@ export async function taskComment(company: Company, agent: AgentDef, key: string
   return `commented on ${issue.key} (${c.id})`;
 }
 
-export async function taskState(company: Company, agent: AgentDef, key: string, word: string): Promise<string> {
+export async function taskState(company: Company, agent: AgentDef, key: string, word: string, opts: { force?: boolean } = {}): Promise<string> {
   const plane = planeFor(company);
   const issue = await plane.issue(key);
   const holder = claimHolder(company, issue.key);
   if (holder && holder !== agent.slug) throw new FabrikError('not_your_claim', `${issue.key} is claimed by ${holder}`);
   const state = await plane.stateFor(issue.projectId, word);
+  if (state.group === 'completed' && !opts.force) {
+    const humanLabel = company.config.plane!.humanLabel;
+    const open = (await plane.children(issue)).filter((c) => c.stateGroup !== 'completed' && c.stateGroup !== 'cancelled' && !c.labels.includes(humanLabel));
+    if (open.length) {
+      throw new FabrikError('open_subtasks', `${issue.key} has open sub-tasks: ${open.map((c) => `${c.key} (${c.stateName})`).join(', ')}. Finish them first, or pass --force.`);
+    }
+  }
   await plane.update(issue, { state: state.id });
   if (state.group === 'completed' || state.group === 'cancelled') dropClaim(company, issue.key, agent.slug, true);
   return `${issue.key} -> ${state.name}`;
@@ -136,9 +142,11 @@ export async function taskCreate(company: Company, agent: AgentDef, title: strin
 
 export async function askHuman(company: Company, agent: AgentDef, question: string, task?: string): Promise<string> {
   const cfg = company.config.plane;
-  appendAttention(company, `${agent.slug} asks: ${question}${task ? ` (re ${task})` : ''}`);
   void new Herdr(company.config.herdr.session).notify(`fabrik: question from ${agent.slug}`, question.slice(0, 200));
-  if (!cfg) return 'question recorded in attention.md';
+  if (!cfg) {
+    appendAttention(company, `${agent.slug} asks: ${question}${task ? ` (re ${task})` : ''}`);
+    return 'question recorded in attention.md';
+  }
   const plane = planeFor(company);
   const project = task?.split('-')[0] ?? cfg.projects[0]!;
   const parent = task ? await plane.issue(task) : null;
@@ -146,6 +154,8 @@ export async function askHuman(company: Company, agent: AgentDef, question: stri
   const todo = await plane.stateFor((await plane.project(project)).id, 'todo');
   const issue = await plane.create(project, { name: `Question from ${agent.name}: ${question.slice(0, 80)}`, html, labels: [cfg.humanLabel], parent: parent?.id ?? null, state: todo.id });
   await withState(company, (s) => { s.plane.askHuman[issue.id] = agent.slug; });
+  // The ticket key in the line lets the daemon tick it once the question is handled.
+  appendAttention(company, `${agent.slug} asks (${issue.key}): ${question}${task ? ` (re ${task})` : ''}`);
   return `asked the human in ${issue.key}; you will be woken when it is answered`;
 }
 

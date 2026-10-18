@@ -195,6 +195,12 @@ export class Plane {
     return this.toIssue(project, raw);
   }
 
+  /** Direct sub-tasks of `issue`, from the 200 most recently updated tickets of its project. */
+  async children(issue: PlaneIssue): Promise<PlaneIssue[]> {
+    const project = issue.key.split('-')[0]!;
+    return (await this.issuesUpdatedSince(project, null, 4)).filter((i) => i.parent === issue.id);
+  }
+
   async comments(issue: PlaneIssue): Promise<PlaneComment[]> {
     const r = await this.request<any>('GET', `${this.ws()}/projects/${issue.projectId}/work-items/${issue.id}/comments/`);
     const list: any[] = Array.isArray(r) ? r : (r.results ?? []);

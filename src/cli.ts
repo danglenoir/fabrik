@@ -35,7 +35,7 @@ Agents (run from agents/<slug>/, or pass --as <slug>)
   fabrik whoami | inbox
   fabrik task show|claim|release <KEY>
   fabrik task comment <KEY> "<text>"
-  fabrik task state <KEY> <todo|in_progress|in_review|done|blocked|cancelled>
+  fabrik task state <KEY> <todo|in_progress|in_review|done|blocked|cancelled> [--force]
   fabrik task create "<title>" [--assign SLUG] [--parent KEY] [--body TEXT] [--project ID]
   fabrik ask-human "<question>" [--task KEY]
   fabrik note "<text>"
@@ -235,7 +235,7 @@ async function main(argv: string[]): Promise<number> {
       if (sub === 'claim') { out(await taskClaim(c, me, need(rest[0], 'ticket key'))); return 0; }
       if (sub === 'release') { out(await taskRelease(c, me, need(rest[0], 'ticket key'))); return 0; }
       if (sub === 'comment') { out(await taskComment(c, me, need(rest[0], 'ticket key'), need(rest.slice(1).join(' '), 'comment text'))); return 0; }
-      if (sub === 'state') { out(await taskState(c, me, need(rest[0], 'ticket key'), need(rest[1], 'state'))); return 0; }
+      if (sub === 'state') { out(await taskState(c, me, need(rest[0], 'ticket key'), need(rest[1], 'state'), { force: o.force })); return 0; }
       if (sub === 'create') { out(await taskCreate(c, me, need(rest.join(' '), 'title'), { assign: o.assign, parent: o.parent, body: o.body, project: o.project })); return 0; }
       throw new FabrikError('usage', 'fabrik task show|claim|release|comment|state|create');
     }
