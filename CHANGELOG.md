@@ -6,6 +6,8 @@ All notable changes to fabrik are documented in this file. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-08
+
 Agents can ask each other for context directly, through their herdr tabs.
 
 ### Added
@@ -129,7 +131,8 @@ First public release.
   `note`, `run done`.
 - Claude Code, Codex and Grok adapters; herdr plugin with a status popup and a wake action.
 
-[Unreleased]: https://github.com/danglenoir/fabrik/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/danglenoir/fabrik/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/danglenoir/fabrik/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/danglenoir/fabrik/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/danglenoir/fabrik/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/danglenoir/fabrik/releases/tag/v0.1.0
