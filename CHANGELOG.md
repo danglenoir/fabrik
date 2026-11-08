@@ -6,6 +6,15 @@ All notable changes to fabrik are documented in this file. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `fabrik init` without `--from` explains how to start the onboarding interview, or lists the
+  proposals earlier interviews wrote, instead of only naming the missing option.
+- `fabrik init --dir` refuses a folder that already holds files (other than `.git`) instead of
+  overwriting its `AGENTS.md`, `CLAUDE.md` and `.gitignore`. `--force` still overrides.
+- Onboarding always created the company in `~/fabrik/<slug>`, even when started in an empty folder
+  made for it. It now asks where the company folder goes and offers that folder.
+
 ## [0.4.0] - 2026-11-08
 
 Agents can ask each other for context directly, through their herdr tabs.

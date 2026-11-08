@@ -127,7 +127,7 @@ npx skills add danglenoir/fabrik -g -a claude-code codex grok  # the onboarding 
 ## Quick start
 
 1. **Onboard.** In any agent tab in herdr, run `/fabrik-onboard` (or ask your agent to use the
-   **fabrik-onboard** skill). It interviews you, writes the proposal to
+   **fabrik-onboard** skill, or to run `fabrik help onboard` and follow it). It interviews you, writes the proposal to
    `~/fabrik/proposals/<company>.yaml` (you never have to write that file yourself) and opens the
    review popup:
    ```
@@ -144,7 +144,8 @@ npx skills add danglenoir/fabrik -g -a claude-code codex grok  # the onboarding 
     ↑↓ agent · ←→ model · e effort · space on/off · g gear · enter accept · esc cancel
    ```
 2. **Create the company.** The skill runs `fabrik init --from ~/fabrik/proposals/<company>.yaml`,
-   which creates `~/fabrik/<company>/`. Review `PROPOSAL.md` there.
+   which creates `~/fabrik/<company>/`, or the empty folder you started the interview in if you
+   choose it. Review `PROPOSAL.md` there.
 3. **Store the Plane key** (kept 0600 in `~/.config/fabrik/`, never in git):
    ```sh
    fabrik secret set PLANE_API_KEY
@@ -267,7 +268,7 @@ the gear; `max_asks_per_hour: 0` switches questions between agents off.
 
 | Command | What it does |
 |---|---|
-| `fabrik init --from proposal.yaml` | Create a company from an onboarding proposal |
+| `fabrik init --from proposal.yaml [--dir DIR]` | Create a company from an onboarding proposal; without `--from` it explains how to start the interview |
 | `fabrik apply [--dry-run] [--accept-trust]` | Open tabs, start agents, restart idle agents whose settings changed (idempotent) |
 | `fabrik doctor` | Check Node, herdr, harnesses, models, Plane (states, membership, key scope), Obsidian and the daemon |
 | `fabrik review [PROPOSAL]` | Pick models, efforts and the gear, switch agents on or off (popup in herdr) |
