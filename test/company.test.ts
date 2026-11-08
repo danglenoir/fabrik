@@ -6,7 +6,7 @@ import { stringify } from 'yaml';
 import { agentForCwd, effectiveAutonomy, loadCompany, renderOrg } from '../src/company.ts';
 import { setAgentFields, setGear } from '../src/edit.ts';
 import { ADAPTERS } from '../src/harness.ts';
-import { initCompany } from '../src/init.ts';
+import { initCompany, initGuide } from '../src/init.ts';
 import { formatDuration, localStamp, parseDuration, today } from '../src/util.ts';
 import { makeCompany, proposal, tmp } from './helpers.ts';
 
@@ -63,6 +63,23 @@ test('init writes into an empty folder but never over a project', () => {
   writeFileSync(join(repo, 'AGENTS.md'), '# my project\n');
   assert.throws(() => initCompany({ proposalPath: p, dir: repo, git: false }), /is not empty/);
   assert.equal(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), '# my project\n');
+});
+
+test('fabrik init without a proposal explains the interview, or lists proposals', () => {
+  const home = process.env.HOME;
+  const empty = tmp();
+  process.env.HOME = tmp();
+  try {
+    const guide = initGuide(empty);
+    assert.match(guide, /run `fabrik help onboard` and follow it/);
+    assert.match(guide, /in this folder if you want/);
+    assert.doesNotMatch(initGuide(process.cwd()), /in this folder if you want/, 'a project folder is not offered');
+    mkdirSync(join(process.env.HOME, 'fabrik', 'proposals'), { recursive: true });
+    writeFileSync(join(process.env.HOME, 'fabrik', 'proposals', 'jord.yaml'), 'company: {}\n');
+    assert.match(initGuide(empty), /^ {2}fabrik init --from ~\/fabrik\/proposals\/jord\.yaml --dir \.$/m);
+  } finally {
+    process.env.HOME = home;
+  }
 });
 
 test('renderOrg shows the tree and the table', () => {

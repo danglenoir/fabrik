@@ -13,7 +13,7 @@ import type { Company } from './company.ts';
 import { Daemon, daemonPid, wakeDir } from './daemon.ts';
 import { ADAPTERS } from './harness.ts';
 import { Herdr } from './herdr.ts';
-import { initCompany } from './init.ts';
+import { initCompany, initGuide } from './init.ts';
 import { doctor, installService, installShim, readSkill, registerCompany, serviceName, startupHook } from './ops.ts';
 import { readSecrets, secretsPath, setSecret } from './secrets.ts';
 import { companyStatus, renderTable, sessionCompanies, statusPane } from './status.ts';
@@ -163,7 +163,8 @@ async function main(argv: string[]): Promise<number> {
       out(HELP); return 0;
 
     case 'init': {
-      const c = initCompany({ proposalPath: need(o.from, '--from proposal.yaml'), dir: o.dir, force: o.force });
+      if (!o.from) { out(initGuide()); return 2; }
+      const c = initCompany({ proposalPath: o.from, dir: o.dir, force: o.force });
       registerCompany(c);
       out(`created ${c.root} with ${c.agents.length} agents\nreview ${join(c.root, 'PROPOSAL.md')}, then: cd ${c.root} && fabrik doctor && fabrik apply`);
       return 0;

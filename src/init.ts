@@ -157,11 +157,42 @@ export function defaultCompanyDir(slug: string): string {
   return join(homedir(), 'fabrik', slug);
 }
 
+/** Where the onboarding interview writes proposals. */
+export function proposalsDir(): string {
+  return join(homedir(), 'fabrik', 'proposals');
+}
+
 /** Entries that do not make a folder someone's project. */
 const IGNORABLE = new Set(['.git', '.DS_Store']);
 
 export function isEmptyDir(dir: string): boolean {
   return existsSync(dir) && readdirSync(dir).every((f) => IGNORABLE.has(f));
+}
+
+/** `fabrik init` without --from: point at proposals an interview already wrote, or at the interview. */
+export function initGuide(cwd = process.cwd()): string {
+  const dir = proposalsDir();
+  const found = existsSync(dir) ? readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).sort() : [];
+  const here = isEmptyDir(cwd) ? ' --dir .' : '';
+  if (found.length) {
+    return [
+      'fabrik init creates a company from a proposal. Proposals from earlier interviews:',
+      ...found.map((f) => `  fabrik init --from ~/fabrik/proposals/${f}${here}`),
+      '',
+      here ? 'Without --dir . the company goes to ~/fabrik/<slug>.' : 'The company goes to ~/fabrik/<slug>; --dir DIR puts it into an empty folder instead.',
+    ].join('\n');
+  }
+  return [
+    'fabrik init creates a company from a proposal, and the onboarding interview writes that proposal.',
+    'To start the interview:',
+    '',
+    '  1. In herdr, start claude, codex or grok in this folder.',
+    '  2. Tell it: run `fabrik help onboard` and follow it.',
+    '     (With the fabrik skills installed, Claude Code also takes /fabrik-onboard.)',
+    '',
+    'The agent asks about your company, proposes a team, opens a popup where you adjust models and',
+    `the gear, and then runs fabrik init for you${here ? ', in this folder if you want' : ''}.`,
+  ].join('\n');
 }
 
 export function initCompany(opts: InitOptions): Company {
