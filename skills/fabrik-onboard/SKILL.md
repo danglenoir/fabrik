@@ -21,7 +21,10 @@ not authorize hiring it.
 Ask in short rounds of at most 4 questions. Offer defaults and keep moving.
 
 1. **Company:** name, slug (lowercase, at most 16 characters), what it does, the first goal for the
-   next weeks, hard constraints, and what "done" looks like for that goal.
+   next weeks, hard constraints, and what "done" looks like for that goal. Also where the company
+   folder goes: `~/fabrik/<slug>` by default. If you were started in an empty folder (`ls -A`
+   shows nothing, or only `.git`), the user probably made it for this company: offer it first.
+   A folder with files in it cannot hold a company.
 2. **Stack** (MVP supports Plane.so and Obsidian; record anything else as context for later):
    - Plane: ask for the URL of one project page (for example
      `https://plane.example.com/acme/projects/…`). The base URL and the **workspace slug** (the
@@ -103,12 +106,13 @@ Show the org as a short table (slug, title, harness, model, effort, what it owns
    - exit 1, `cancelled`: ask what they want to change, edit the proposal, review again.
    - exit 4, still open: run `fabrik review ~/fabrik/proposals/<slug>.yaml --wait` until it
      returns 0 or 1. Do not edit the file meanwhile.
-3. `fabrik init --from ~/fabrik/proposals/<slug>.yaml`. This creates `~/fabrik/<slug>/` and never
-   touches `~/AGENTS.md`. Agents switched off in the review are created with `enabled: false`.
+3. `fabrik init --from ~/fabrik/proposals/<slug>.yaml --dir <folder>`, with the company folder
+   from the interview (leave out `--dir` for `~/fabrik/<slug>`). It never touches `~/AGENTS.md`.
+   Agents switched off in the review are created with `enabled: false`.
 4. Show the user `PROPOSAL.md` and the path. Tell them how to store the Plane key, which only they
-   should type: `fabrik secret set PLANE_API_KEY --company ~/fabrik/<slug>`.
-5. `fabrik doctor --company ~/fabrik/<slug>` and fix what it reports.
-6. Only after an explicit yes: `fabrik apply --company ~/fabrik/<slug>`. A trust dialog for the new
+   should type: `fabrik secret set PLANE_API_KEY --company <folder>`.
+5. `fabrik doctor --company <folder>` and fix what it reports.
+6. Only after an explicit yes: `fabrik apply --company <folder>`. A trust dialog for the new
    folder may appear; ask the user before passing `--accept-trust`.
 7. Offer `fabrik service install` to start the heartbeat. Agents use the user's own skills,
    memory, hooks and plugins; only the global instruction files stay out (`isolate: true` in
