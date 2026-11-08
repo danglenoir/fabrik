@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
@@ -157,6 +157,13 @@ export function defaultCompanyDir(slug: string): string {
   return join(homedir(), 'fabrik', slug);
 }
 
+/** Entries that do not make a folder someone's project. */
+const IGNORABLE = new Set(['.git', '.DS_Store']);
+
+export function isEmptyDir(dir: string): boolean {
+  return existsSync(dir) && readdirSync(dir).every((f) => IGNORABLE.has(f));
+}
+
 export function initCompany(opts: InitOptions): Company {
   const raw = parseYaml(readFileSync(opts.proposalPath, 'utf8')) as Record<string, any>;
   if (!raw || typeof raw !== 'object') throw new FabrikError('invalid_proposal', 'proposal must be a YAML mapping');
@@ -168,6 +175,10 @@ export function initCompany(opts: InitOptions): Company {
   const dir = resolve(opts.dir ?? defaultCompanyDir(config.company.slug));
   if (dir === homedir() || dir === '/') throw new FabrikError('unsafe_dir', `refusing to use ${dir} as a company directory`);
   if (existsSync(join(dir, 'fabrik.yaml')) && !opts.force) throw new FabrikError('exists', `${dir} already holds a fabrik company (use --force to overwrite)`);
+  // fabrik owns AGENTS.md, CLAUDE.md and .gitignore in its folder; never write them over someone's project.
+  if (existsSync(dir) && !existsSync(join(dir, 'fabrik.yaml')) && !isEmptyDir(dir) && !opts.force) {
+    throw new FabrikError('not_empty', `${dir} is not empty, and fabrik writes its own AGENTS.md, CLAUDE.md and .gitignore there. Use a new or empty folder (or --force)`);
+  }
 
   // Validate everything before writing anything.
   const agents: AgentDef[] = agentsRaw.map((a) => {

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { stringify } from 'yaml';
@@ -50,6 +50,19 @@ test('init refuses the home directory and existing companies', () => {
   const p = join(c.root, '..', 'proposal.yaml');
   assert.throws(() => initCompany({ proposalPath: p, dir: c.root, git: false }), /already holds/);
   assert.throws(() => initCompany({ proposalPath: p, dir: process.env.HOME!, git: false }), /refusing/);
+});
+
+test('init writes into an empty folder but never over a project', () => {
+  const c = makeCompany();
+  const p = join(c.root, '..', 'proposal.yaml');
+  const project = join(c.root, '..', 'project');
+  mkdirSync(join(project, '.git'), { recursive: true });
+  assert.equal(initCompany({ proposalPath: p, dir: project, git: false }).root, project, 'a fresh git repository counts as empty');
+  const repo = join(c.root, '..', 'repo');
+  mkdirSync(repo);
+  writeFileSync(join(repo, 'AGENTS.md'), '# my project\n');
+  assert.throws(() => initCompany({ proposalPath: p, dir: repo, git: false }), /is not empty/);
+  assert.equal(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), '# my project\n');
 });
 
 test('renderOrg shows the tree and the table', () => {
