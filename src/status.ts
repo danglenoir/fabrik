@@ -1,3 +1,4 @@
+import { answering, isOpen } from './asks.ts';
 import { herdrName, loadCompany } from './company.ts';
 import type { Company } from './company.ts';
 import { daemonPid } from './daemon.ts';
@@ -5,10 +6,14 @@ import { Herdr } from './herdr.ts';
 import type { HerdrAgent } from './herdr.ts';
 import { registeredCompanies } from './ops.ts';
 import { loadState } from './state.ts';
-import { today } from './util.ts';
+import { formatDuration, today } from './util.ts';
 
 export interface AgentRow { slug: string; title: string; status: string; runsToday: number; queue: string[] }
-export interface CompanyStatus { name: string; slug: string; root: string; daemon: number | null; herdrError: string | null; agents: AgentRow[] }
+export interface CompanyStatus {
+  name: string; slug: string; root: string; daemon: number | null; herdrError: string | null; agents: AgentRow[];
+  /** Open questions between agents, one line each. */
+  questions: string[];
+}
 
 export async function companyStatus(company: Company): Promise<CompanyStatus> {
   const state = loadState(company);
@@ -22,10 +27,13 @@ export async function companyStatus(company: Company): Promise<CompanyStatus> {
   const agents = company.agents.map((a) => {
     const s = state.agents[a.slug]!;
     const l = live.find((x) => x.name === herdrName(company, a)) ?? live.find((x) => x.pane_id === s.paneId && !x.name);
-    const status = !a.enabled ? 'disabled' : s.paused ? 'paused' : s.inflight ? 'running' : (l?.agent_status ?? 'offline');
+    const status = !a.enabled ? 'disabled' : s.paused ? 'paused' : s.inflight ? 'running' : answering(state, a.slug) ? 'answering' : (l?.agent_status ?? 'offline');
     return { slug: a.slug, title: a.title, status, runsToday: s.runsDate === today() ? s.runsToday : 0, queue: s.queue.map((q) => q.key) };
   });
-  return { name: company.config.company.name, slug: company.config.company.slug, root: company.root, daemon: daemonPid(company), herdrError, agents };
+  const now = Date.now();
+  const questions = Object.values(state.asks).filter(isOpen).sort((a, b) => a.askedAt - b.askedAt).map((q) =>
+    `${q.id}  ${q.from} → ${q.to}  ${q.status === 'pending' ? 'waiting for' : 'answering since'} ${formatDuration(now - (q.deliveredAt ?? q.askedAt))}${q.ticket ? `  (${q.ticket})` : ''}`);
+  return { name: company.config.company.name, slug: company.config.company.slug, root: company.root, daemon: daemonPid(company), herdrError, agents, questions };
 }
 
 /** `fabrik status`: a plain table for the terminal and for scripts. */
@@ -39,6 +47,7 @@ export function renderTable(st: CompanyStatus): string {
   for (const a of st.agents) {
     lines.push(`${a.slug.padEnd(12)} ${a.title.slice(0, 20).padEnd(20)} ${a.status.padEnd(10)} ${String(a.runsToday).padStart(4)}  ${a.queue.join(', ') || '-'}`);
   }
+  if (st.questions.length) lines.push('', 'open questions:', ...st.questions.map((q) => `  ${q}`));
   return lines.join('\n');
 }
 
@@ -48,7 +57,7 @@ const sgr = (code: string) => (text: string) => `\u001b[${code}m${text}\u001b[0m
 const bold = sgr('1');
 const dim = sgr('2');
 const STATUS_COLOUR: Record<string, (t: string) => string> = {
-  working: sgr('32'), running: sgr('32'), blocked: sgr('33'), paused: sgr('31'), offline: sgr('31'),
+  working: sgr('32'), running: sgr('32'), answering: sgr('36'), blocked: sgr('33'), paused: sgr('31'), offline: sgr('31'),
 };
 
 function fit(text: string, width: number): string {

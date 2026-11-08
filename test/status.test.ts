@@ -12,6 +12,7 @@ const status: CompanyStatus = {
     { slug: 'cody', title: 'Engineer', status: 'working', runsToday: 3, queue: ['FAB-2'] },
     { slug: 'wren', title: 'Ops', status: 'paused', runsToday: 0, queue: ['FAB-7', 'FAB-9'] },
   ],
+  questions: [],
 };
 
 test('the popup is one line per agent and fits its width', () => {
@@ -38,4 +39,10 @@ test('the popup shortens long companies to its height', () => {
 
 test('fabrik status keeps its plain table', () => {
   assert.match(renderTable(status), /^Fabrik Test — \/home\/u\/fabrik\/fabtest\ndaemon: running \(pid 4242\)/);
+});
+
+test('fabrik status lists open questions under the table', () => {
+  const asking = { ...status, questions: ['q-1a2b  cody → ada  answering since 40s  (FAB-2)'] };
+  assert.match(renderTable(asking), /\n\nopen questions:\n  q-1a2b  cody → ada  answering since 40s  \(FAB-2\)$/);
+  assert.doesNotMatch(renderTable(status), /open questions/);
 });
