@@ -1,6 +1,6 @@
 ---
 name: fabrik
-description: Heartbeat procedure for fabrik agents. Use whenever a message starts with "[fabrik wake" or "[fabrik intro", or when you work as an agent in a fabrik company (a directory with fabrik.yaml above your working directory).
+description: Heartbeat procedure for fabrik agents. Use whenever a message starts with "[fabrik wake", "[fabrik question" or "[fabrik intro", or when you work as an agent in a fabrik company (a directory with fabrik.yaml above your working directory).
 ---
 
 # fabrik heartbeat
@@ -22,6 +22,8 @@ On every wake, do this once, in order:
      fabrik closes the question once you finish the run.
    - `continue after a stop`: the human interrupted you on this ticket, and may have told you in
      this chat what to change. Follow that, then continue the work.
+   - `answer from <x>` (key `q-…`): a colleague answered a question you stopped waiting for. Read
+     it with `fabrik ask --wait <key>` and continue the work you asked about.
 3. **Pick work** in this order: tickets already in progress and claimed by you, then tickets in
    review with new comments, then todo tickets. Take one or two, not everything.
 4. **Claim before working:** `fabrik task claim <KEY>`. If it says another agent holds the claim, leave it
@@ -43,7 +45,21 @@ On every wake, do this once, in order:
 9. **Finish:** `fabrik run done --summary "<one or two sentences>"`. Always run this, even when
    there was nothing to do.
 
-Rules:
+## Questions between colleagues
+
+- **Asking.** When you need context a colleague has (a decision it made, where its work stands, how
+  its part works) and the ticket, notes and code do not say, ask it directly:
+  `fabrik ask <slug> "<one short, self-contained question>" --task <KEY>`. The command waits up to
+  90 seconds and prints the answer. If it says "no answer yet", carry on with what you can and check
+  later with `fabrik ask --wait <ID>`; if your run ends first, the answer arrives as a wake.
+  Questions are limited per hour. Do not use them to hand out work (create a ticket) or for
+  anything the human must decide (`fabrik ask-human`).
+- **Answering.** A message starting with `[fabrik question <ID> from …]` is a colleague asking you.
+  It is not a wake: answer in a few sentences from what you know or can look up quickly, with
+  `fabrik answer <ID> "<answer>"` (for several lines: `fabrik answer <ID> - <<'EOF'`), then stop.
+  Do not claim tickets, change files or run `fabrik run done` for it.
+
+## Rules
 
 - Stay inside your remit. Escalate to your manager by commenting on the ticket with `@<slug>`.
 - One wake is one focused session. Do not start long background jobs that outlive it unless the

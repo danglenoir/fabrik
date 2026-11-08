@@ -66,6 +66,8 @@ ${remit}
 - Tickets live in Plane. Claim a ticket with \`fabrik task claim\` before working on it, post
   progress with \`fabrik task comment\`, and never work on a ticket someone else has claimed.
 - Delegate to your reports with \`fabrik task create --assign <slug>\`. Escalate to your manager by commenting.
+- When you need context a colleague has, ask it directly: \`fabrik ask <slug> "<question>"\` waits for its
+  answer. Messages starting with \`[fabrik question\` are colleagues asking you: reply with \`fabrik answer\`.
 - Keep your journal with \`fabrik note\`. Durable knowledge belongs in notes and tickets, not in chat:
   your conversation can be reset at any time.
 - Finish every wake with \`fabrik run done --summary "…"\`.
@@ -104,6 +106,9 @@ fabrik task comment <KEY> "<text>"      # post progress
 fabrik task state <KEY> <todo|in_progress|in_review|done|blocked>
 fabrik task create "<title>" [--assign <slug>] [--parent <KEY>] [--body "<text>"]
 fabrik task release <KEY>               # give a claimed ticket back
+fabrik ask <slug> "<question>" [--task <KEY>]   # ask a colleague; waits for the answer
+fabrik ask --wait <ID>                  # keep waiting for an answer
+fabrik answer <ID> "<answer>"           # answer a colleague's question
 fabrik ask-human "<question>" [--task <KEY>]
 fabrik note "<text>"                    # append to your journal for today
 fabrik run done --summary "<text>"      # end of every wake
@@ -130,7 +135,7 @@ ${renderOrg(company).split('\n').slice(4).join('\n')}
 
 - Agents wake on events (Plane label \`${company.config.plane?.agentLabelPrefix ?? 'agent:'}<slug>\`, comments, @mentions, Obsidian inbox notes, \`fabrik wake\`).
 - Timers: ${hb.timerMs === null ? 'off by default' : `every ${formatDuration(hb.timerMs)}`} (per-agent overrides in the table), and they only fire when there is open work.
-- Caps: ${hb.maxRunsPerDay} runs per agent per day, ${hb.maxConcurrent} agents working at once, ${formatDuration(hb.cooldownMs)} cooldown, context reset every ${hb.rotateAfterRuns} runs.
+- Caps: ${hb.maxRunsPerDay} runs per agent per day, ${hb.maxConcurrent} agents working at once, ${formatDuration(hb.cooldownMs)} cooldown, context reset every ${hb.rotateAfterRuns} runs, ${hb.maxAsksPerHour} questions to colleagues per agent per hour.
 
 ## Gear and permissions
 
