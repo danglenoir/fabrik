@@ -6,6 +6,8 @@ All notable changes to fabrik are documented in this file. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-08
+
 ### Fixed
 
 - `fabrik init` without `--from` explains how to start the onboarding interview, or lists the
@@ -140,7 +142,8 @@ First public release.
   `note`, `run done`.
 - Claude Code, Codex and Grok adapters; herdr plugin with a status popup and a wake action.
 
-[Unreleased]: https://github.com/danglenoir/fabrik/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/danglenoir/fabrik/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/danglenoir/fabrik/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/danglenoir/fabrik/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/danglenoir/fabrik/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/danglenoir/fabrik/compare/v0.1.0...v0.2.0

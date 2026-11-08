@@ -1,6 +1,6 @@
 {
   "name": "fabrik",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Run an AI-agent company in herdr: org chart, heartbeats, Plane + Obsidian.",
   "keywords": [
     "herdr",
