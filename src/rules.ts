@@ -138,6 +138,8 @@ export function enqueue(queue: WakeItem[], ev: WakeEvent, now: number): void {
 export function wakeText(runId: string, items: WakeItem[]): string {
   const parts = items.map((i) => `${i.key}: ${i.reasons.join(', ')}`);
   const mentioned = items.some((i) => i.reasons.some((r) => r.startsWith('mentioned by')));
-  const hint = mentioned ? ' Where you were only mentioned, the ticket belongs to someone else: answer what you were asked there and do not take over its work.' : '';
+  const answered = items.some((i) => i.reasons.some((r) => r.startsWith('answer from')));
+  const hint = (mentioned ? ' Where you were only mentioned, the ticket belongs to someone else: answer what you were asked there and do not take over its work.' : '') +
+    (answered ? ' Read the answers to your questions with: fabrik ask --wait <key>.' : '');
   return `[fabrik wake run=${runId}] ${parts.join('; ')}.${hint} Run your fabrik heartbeat now (skill "fabrik", or: fabrik help heartbeat).`;
 }

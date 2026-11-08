@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import type { Ask } from './asks.ts';
 import type { Company } from './company.ts';
 import { FabrikError, readJson, writeJson, appendJsonl, withFileLock } from './util.ts';
 
@@ -56,6 +57,7 @@ export interface CompanyState {
     chatter: Record<string, number[]>; // ticket key -> times of agent-caused wakes (loop guard)
   };
   inbox: Record<string, number>; // note path -> mtimeMs processed
+  asks: Record<string, Ask>; // questions between agents, by id
 }
 
 export function emptyAgentState(): AgentState {
@@ -71,11 +73,12 @@ export function statePath(company: Company): string {
 
 export function loadState(company: Company): CompanyState {
   const s = readJson<CompanyState>(statePath(company), {
-    version: 1, workspaceId: null, agents: {}, plane: { hwm: null, lastPoll: 0, snaps: {}, seenComments: {}, askHuman: {}, chatter: {} }, inbox: {},
+    version: 1, workspaceId: null, agents: {}, plane: { hwm: null, lastPoll: 0, snaps: {}, seenComments: {}, askHuman: {}, chatter: {} }, inbox: {}, asks: {},
   });
   for (const a of company.agents) s.agents[a.slug] = { ...emptyAgentState(), ...s.agents[a.slug] };
   s.plane.askHuman ??= {};
   s.plane.chatter ??= {};
+  s.asks ??= {};
   return s;
 }
 

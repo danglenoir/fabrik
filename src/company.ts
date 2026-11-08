@@ -14,13 +14,13 @@ export type Gear = (typeof GEAR_NAMES)[number];
  * A gear sets how hard the company runs: permissions for agents without their own `autonomy`,
  * and the default caps. Explicit heartbeat values in fabrik.yaml win over the gear.
  */
-export const GEARS: Record<Gear, { autonomy: Autonomy; maxConcurrent: number; maxRunsPerDay: number; summary: string }> = {
+export const GEARS: Record<Gear, { autonomy: Autonomy; maxConcurrent: number; maxRunsPerDay: number; maxAsksPerHour: number; summary: string }> = {
   steady: {
-    autonomy: 'low', maxConcurrent: 2, maxRunsPerDay: 15,
+    autonomy: 'low', maxConcurrent: 2, maxRunsPerDay: 15, maxAsksPerHour: 4,
     summary: 'protects your tokens and limits: agents ask before edits and commands, 2 work at once, 15 runs per agent per day',
   },
   turbo: {
-    autonomy: 'medium', maxConcurrent: 4, maxRunsPerDay: 60,
+    autonomy: 'medium', maxConcurrent: 4, maxRunsPerDay: 60, maxAsksPerHour: 20,
     summary: 'more autonomous and faster: no prompts inside the sandbox, 4 work at once, 60 runs per agent per day; uses more tokens',
   },
 };
@@ -67,6 +67,8 @@ export interface CompanyConfig {
     cooldownMs: number;
     runTimeoutMs: number;
     rotateAfterRuns: number;
+    /** Questions one agent may ask colleagues per hour (`fabrik ask`); 0 switches them off. */
+    maxAsksPerHour: number;
   };
   router: { unassigned: string };
   /**
@@ -163,6 +165,7 @@ export function normalizeConfig(raw: Raw): CompanyConfig {
       cooldownMs: dur(hb.cooldown, '60s'),
       runTimeoutMs: dur(hb.run_timeout, '45m'),
       rotateAfterRuns: num(hb.rotate_after_runs, 15),
+      maxAsksPerHour: num(hb.max_asks_per_hour, GEARS[gear].maxAsksPerHour),
     },
     router: { unassigned: str(raw.router?.unassigned, 'router.unassigned', '') },
     isolate: raw.isolate === true,

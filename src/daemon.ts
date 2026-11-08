@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { herdrName, loadCompany } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
 import { exitHarness, locateAgent, reapplyMetadata, restartAgent } from './apply.ts';
+import { answering, askText, failAsk, FORWARD_AFTER_MS, HUMAN, pruneAsks, replyFromScreen, settleAsk } from './asks.ts';
+import type { Ask } from './asks.ts';
 import { allClaims, dropClaim } from './claims.ts';
 import { adapterFor, launchSignature } from './harness.ts';
 import { Herdr } from './herdr.ts';
@@ -246,12 +248,13 @@ export class Daemon {
   }
 
   /** Decide whether to deliver now. Returns a reason when the agent must wait. */
-  gate(agent: AgentDef, s: AgentState, live: HerdrAgent | undefined, now: number, inflightCount: number): string | null {
+  gate(agent: AgentDef, s: AgentState, live: HerdrAgent | undefined, now: number, inflightCount: number, question?: Ask): string | null {
     const hb = this.company.config.heartbeat;
     if (s.queue.length === 0) return 'empty queue';
     if (!agent.enabled) return 'switched off';
     if (s.paused) return 'paused';
     if (s.inflight) return 'run in progress';
+    if (question) return `answering ${question.id}`;
     if (!live) return 'not running';
     if (live.agent_status !== 'idle' && live.agent_status !== 'done') return `status ${live.agent_status}`;
     if (inflightCount >= hb.maxConcurrent) return 'company concurrency limit';
@@ -260,12 +263,11 @@ export class Daemon {
     return null;
   }
 
-  async deliver(agent: AgentDef, s: AgentState, live: HerdrAgent, now: number): Promise<void> {
+  /** herdr can report a popup as idle; look at the screen before typing into it. */
+  private async readyForInput(agent: AgentDef, s: AgentState): Promise<boolean> {
     const name = herdrName(this.company, agent);
-    const adapter = adapterFor(agent);
-    // herdr can report a popup as idle; look at the screen before typing into it.
     const screen = await this.herdr.read(name, 'visible', 40).catch(() => '');
-    for (const d of adapter.dialogs) {
+    for (const d of adapterFor(agent).dialogs) {
       if (!d.pattern.test(screen)) continue;
       if (d.keys) {
         await this.herdr.sendKeys(name, d.keys);
@@ -274,8 +276,15 @@ export class Daemon {
         this.escalate(agent, `shows "${d.name}"; answer it in the tab`);
         s.paused = true;
       }
-      return; // re-check on the next tick
+      return false; // re-check on the next tick
     }
+    return true;
+  }
+
+  async deliver(agent: AgentDef, s: AgentState, live: HerdrAgent, now: number): Promise<void> {
+    const name = herdrName(this.company, agent);
+    const adapter = adapterFor(agent);
+    if (!(await this.readyForInput(agent, s))) return;
     if (s.runsSinceReset >= this.company.config.heartbeat.rotateAfterRuns) {
       await this.herdr.prompt(name, adapter.resetCommand);
       s.runsSinceReset = 0;
@@ -302,6 +311,82 @@ export class Daemon {
     log(`${agent.slug}: wake ${runId} -> ${items.map((i) => i.key).join(', ')}`);
   }
 
+  /** Follow questions typed into a colleague's tab until it answers, or goes idle without answering. */
+  async reconcileAsks(state: CompanyState, located: Map<string, HerdrAgent | undefined>, now: number): Promise<void> {
+    for (const ask of Object.values(state.asks)) {
+      if (ask.status !== 'delivered') continue;
+      const agent = this.company.agents.find((a) => a.slug === ask.to);
+      const live = located.get(ask.to);
+      if (!agent || !live) this.failAsk(ask, `${ask.to} stopped running before it answered`, now);
+      else if (state.agents[ask.to]?.paused) this.failAsk(ask, `the human stopped ${ask.to} before it answered`, now);
+      else {
+        const st = live.agent_status;
+        if (st === 'working') ask.sawWorking = true;
+        const advanced = (live.completion_seq ?? 0) > ask.seqBefore;
+        if ((st === 'idle' || st === 'done') && (ask.sawWorking || advanced)) {
+          // It replied in its chat instead of with `fabrik answer`: take the reply from its tab.
+          const screen = await this.herdr.read(herdrName(this.company, agent), 'recent-unwrapped', 120).catch(() => '');
+          const reply = replyFromScreen(screen, ask.id);
+          if (!reply) { this.failAsk(ask, `${ask.to} finished without answering; its reply, if any, is in its tab`, now); continue; }
+          settleAsk(ask, reply, 'screen', now);
+          logEvent(this.company, { type: 'answered', id: ask.id, from: ask.from, to: ask.to, via: 'screen' });
+        } else if (st === 'blocked' && !ask.escalated) {
+          ask.escalated = true;
+          this.escalate(agent, `waiting for approval in its herdr tab while answering ${ask.id} from ${ask.from}`);
+        } else if (!ask.sawWorking && !advanced && now - (ask.deliveredAt ?? now) > STALL_MS) {
+          this.failAsk(ask, `${ask.to} did not react to the question`, now);
+        }
+      }
+    }
+  }
+
+  private failAsk(ask: Ask, error: string, now: number): void {
+    failAsk(ask, error, now);
+    log(`${ask.id}: ${error}`);
+    logEvent(this.company, { type: 'ask_failed', id: ask.id, error });
+  }
+
+  /** Type waiting questions into colleagues' tabs: between their runs, one question at a time. */
+  async deliverAsks(state: CompanyState, located: Map<string, HerdrAgent | undefined>, now: number): Promise<void> {
+    const pending = Object.values(state.asks).filter((a) => a.status === 'pending').sort((a, b) => a.askedAt - b.askedAt);
+    for (const ask of pending) {
+      const agent = this.company.agents.find((a) => a.slug === ask.to);
+      const s = state.agents[ask.to];
+      const live = located.get(ask.to);
+      if (!agent || !s || !agent.enabled) { this.failAsk(ask, `${ask.to} is switched off`, now); continue; }
+      if (s.paused) { this.failAsk(ask, `${ask.to} is paused while the human works with it`, now); continue; }
+      if (!live) { this.failAsk(ask, `${ask.to} is not running`, now); continue; }
+      if (s.inflight || answering(state, ask.to) || (live.agent_status !== 'idle' && live.agent_status !== 'done')) continue;
+      if (!(await this.readyForInput(agent, s))) continue;
+      try {
+        await this.herdr.prompt(herdrName(this.company, agent), askText(this.company, ask));
+      } catch (err) {
+        log(`${ask.id}: could not ask ${ask.to}: ${(err as Error).message}`);
+        continue;
+      }
+      ask.status = 'delivered';
+      ask.deliveredAt = now;
+      ask.seqBefore = live.completion_seq ?? 0;
+      logEvent(this.company, { type: 'ask_delivered', id: ask.id, from: ask.from, to: ask.to });
+      log(`${ask.from} asks ${ask.to} (${ask.id})`);
+    }
+  }
+
+  /** An answer the asker stopped waiting for reaches it as a wake, so a timed-out `fabrik ask` loses nothing. */
+  forwardAnswers(state: CompanyState, now: number): void {
+    for (const ask of Object.values(state.asks)) {
+      if (ask.status !== 'answered' || ask.collected || ask.forwarded || ask.from === HUMAN) continue;
+      const s = state.agents[ask.from];
+      if (!s || now - (ask.closedAt ?? now) < FORWARD_AFTER_MS) continue;
+      ask.forwarded = true;
+      const ev: WakeEvent = { agent: ask.from, key: ask.id, reason: `answer from ${ask.to}` };
+      enqueue(s.queue, ev, now);
+      logEvent(this.company, { type: 'wake_queued', ...ev });
+    }
+    // Answers read with `fabrik ask --wait` in the meantime need no wake.
+    for (const s of Object.values(state.agents)) s.queue = s.queue.filter((q) => !state.asks[q.key]?.collected);
+  }
+
   /** Pick up edits to fabrik.yaml and agent files (gear, models, switched-off agents) without a daemon restart. */
   private reloadCompany(): void {
     try {
@@ -322,7 +407,7 @@ export class Daemon {
     for (const agent of this.company.agents) {
       const s = state.agents[agent.slug]!;
       const live = located.get(agent.slug);
-      if (!adapterFor(agent).supported || !live || s.inflight || (live.agent_status !== 'idle' && live.agent_status !== 'done')) continue;
+      if (!adapterFor(agent).supported || !live || s.inflight || answering(state, agent.slug) || (live.agent_status !== 'idle' && live.agent_status !== 'done')) continue;
       if (!agent.enabled) {
         if (await exitHarness(this.herdr, this.company, agent, live)) log(`${agent.slug}: switched off, harness closed`);
         else this.escalate(agent, 'is switched off but did not quit; quit it in its tab');
@@ -394,11 +479,16 @@ export class Daemon {
       for (const agent of this.company.agents) {
         this.reconcile(agent, state.agents[agent.slug]!, located.get(agent.slug), now);
       }
+      // Questions first: they are short, and the asker is waiting.
+      pruneAsks(this.company, state, now);
+      await this.reconcileAsks(state, located, now);
+      await this.deliverAsks(state, located, now);
+      this.forwardAnswers(state, now);
       for (const agent of this.company.agents) {
         const s = state.agents[agent.slug]!;
         const l = located.get(agent.slug);
         const inflight = Object.values(state.agents).filter((x) => x.inflight).length;
-        if (this.gate(agent, s, l, now, inflight) === null && l) {
+        if (this.gate(agent, s, l, now, inflight, answering(state, agent.slug)) === null && l) {
           try {
             await this.deliver(agent, s, l, now);
           } catch (err) {
@@ -407,7 +497,7 @@ export class Daemon {
         }
         writeStatusCard(this.company, {
           slug: agent.slug, name: agent.name, title: agent.title, harness: agent.harness, model: agent.model,
-          status: s.inflight ? `working (${s.inflight.runId})` : (l?.agent_status ?? 'offline'),
+          status: s.inflight ? `working (${s.inflight.runId})` : answering(state, agent.slug) ? `answering ${answering(state, agent.slug)!.from}` : (l?.agent_status ?? 'offline'),
           queue: s.queue.map((q) => q.key), runsToday: s.runsDate === today() ? s.runsToday : 0,
           lastRun: s.lastRunEnd ? localStamp(new Date(s.lastRunEnd)) : '', paused: s.paused,
         });

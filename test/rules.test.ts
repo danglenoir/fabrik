@@ -102,6 +102,7 @@ test('loop guard limits agents waking each other on one ticket, never humans', (
 test('a mention wake says the ticket belongs to someone else', () => {
   assert.match(wakeText('R1', [{ key: 'ACME-3', reasons: ['mentioned by wren'], firstAt: 0, lastAt: 0 }]), /belongs to someone else/);
   assert.doesNotMatch(wakeText('R1', [{ key: 'ACME-3', reasons: ['assigned'], firstAt: 0, lastAt: 0 }]), /belongs to someone else/);
+  assert.match(wakeText('R1', [{ key: 'q-1a2b', reasons: ['answer from ada'], firstAt: 0, lastAt: 0 }]), /q-1a2b: answer from ada\. Read the answers to your questions with: fabrik ask --wait <key>\./);
 });
 
 test('queue coalesces by key and wake text lists reasons', () => {

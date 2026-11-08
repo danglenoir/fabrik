@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { askHuman, inbox, note, requireAgent, runDone, taskClaim, taskComment, taskCreate, taskRelease, taskShow, taskState, whoami } from './agent.ts';
+import { askHuman, inbox, note, requireAgent, resolveAgent, runDone, taskClaim, taskComment, taskCreate, taskRelease, taskShow, taskState, whoami } from './agent.ts';
 import { apply } from './apply.ts';
+import { answerAsk, askProgress, awaitAnswer, createAsk, HUMAN } from './asks.ts';
+import type { Ask } from './asks.ts';
 import { pauseAgent, stopAgent } from './control.ts';
 import { setGear } from './edit.ts';
 import { reviewInHerdr, reviewPane, reviewTarget, runPicker } from './review.ts';
@@ -15,7 +17,7 @@ import { initCompany } from './init.ts';
 import { doctor, installService, installShim, readSkill, registerCompany, serviceName, startupHook } from './ops.ts';
 import { readSecrets, secretsPath, setSecret } from './secrets.ts';
 import { companyStatus, renderTable, sessionCompanies, statusPane } from './status.ts';
-import { FabrikError, writeJson } from './util.ts';
+import { FabrikError, formatDuration, parseDuration, writeJson } from './util.ts';
 import { join, resolve } from 'node:path';
 
 const HELP = `fabrik — run an AI-agent company in herdr
@@ -43,6 +45,9 @@ Agents (run from agents/<slug>/, or pass --as <slug>)
   fabrik task comment <KEY> "<text>"
   fabrik task state <KEY> <todo|in_progress|in_review|done|blocked|cancelled> [--force]
   fabrik task create "<title>" [--assign SLUG] [--parent KEY] [--body TEXT] [--project ID]
+  fabrik ask <slug> "<question>" [--task KEY] [--timeout 90s]   ask a colleague, wait for the answer
+  fabrik ask --wait <ID> [--timeout 90s]                       keep waiting for an answer
+  fabrik answer <ID> "<answer>"                                answer a colleague's question
   fabrik ask-human "<question>" [--task KEY]
   fabrik note "<text>"
   fabrik run done --summary "<text>"
@@ -56,7 +61,7 @@ const OPTIONS = {
   'dry-run': { type: 'boolean' }, 'accept-trust': { type: 'boolean' }, only: { type: 'string' }, once: { type: 'boolean' },
   reason: { type: 'string' }, key: { type: 'string' }, as: { type: 'string' }, assign: { type: 'string' }, parent: { type: 'string' },
   body: { type: 'string' }, project: { type: 'string' }, task: { type: 'string' }, summary: { type: 'string' },
-  wait: { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
+  wait: { type: 'boolean' }, timeout: { type: 'string' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
 } as const;
 
 function packageVersion(): string {
@@ -87,6 +92,29 @@ async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const c of process.stdin) chunks.push(c as Buffer);
   return Buffer.concat(chunks).toString('utf8').trim();
+}
+
+/** Free text from the remaining arguments, or from stdin when it is a single "-". */
+async function textArg(parts: string[], what: string): Promise<string> {
+  if (parts.length === 1 && parts[0] === '-') {
+    if (process.stdin.isTTY) throw new FabrikError('usage', `"-" reads the ${what} from a pipe or heredoc`);
+    return readStdin();
+  }
+  return need(parts.join(' '), what);
+}
+
+/** Print where a question stands; the exit code says it: 0 answered, 4 still open. */
+function reportAsk(ask: Ask, out: (s: string) => void): number {
+  if (ask.status === 'failed') throw new FabrikError('ask_failed', `${ask.id}: ${ask.error}`);
+  if (ask.status === 'answered') {
+    out(ask.via === 'screen' ? `${ask.to} replied in its tab instead of with fabrik answer (${ask.id}):` : `${ask.to} answers (${ask.id}):`);
+    out(ask.answer ?? '');
+    return 0;
+  }
+  out(`${ask.id}: no answer yet; ${askProgress(ask)}.`);
+  out(`Keep waiting with: fabrik ask --wait ${ask.id}`);
+  if (ask.from !== HUMAN) out('If you stop waiting, the answer reaches you as a wake.');
+  return 4;
 }
 
 /** The fabrik agent in the focused herdr pane, for the plugin actions. */
@@ -238,6 +266,16 @@ async function main(argv: string[]): Promise<number> {
       if (sub === 'create') { out(await taskCreate(c, me, need(rest.join(' '), 'title'), { assign: o.assign, parent: o.parent, body: o.body, project: o.project })); return 0; }
       throw new FabrikError('usage', 'fabrik task show|claim|release|comment|state|create');
     }
+    case 'ask': {
+      const c = company();
+      const waitMs = parseDuration(o.timeout ?? '90s') ?? 0;
+      if (o.wait) return reportAsk(await awaitAnswer(c, need(sub, 'question id'), waitMs), out);
+      if (!daemonPid(c)) throw new FabrikError('no_daemon', 'the fabrik daemon is not running, so nobody would deliver the question (fabrik daemon, or fabrik service install)');
+      const ask = await createAsk(c, resolveAgent(c, o.as), need(sub, 'agent slug'), await textArg(rest, 'question'), o.task);
+      out(`asked ${ask.to} (${ask.id})${waitMs ? `; waiting up to ${formatDuration(waitMs)} for the answer` : ''}`);
+      return reportAsk(await awaitAnswer(c, ask.id, waitMs), out);
+    }
+    case 'answer': { const c = company(); out(await answerAsk(c, resolveAgent(c, o.as), need(sub, 'question id'), await textArg(rest, 'answer'))); return 0; }
     case 'ask-human': { const c = company(); out(await askHuman(c, requireAgent(c, o.as), need([sub, ...rest].filter(Boolean).join(' '), 'question'), o.task)); return 0; }
     case 'note': { const c = company(); out(note(c, requireAgent(c, o.as), need([sub, ...rest].filter(Boolean).join(' '), 'text'))); return 0; }
     case 'run':
