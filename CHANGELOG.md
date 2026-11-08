@@ -6,6 +6,29 @@ All notable changes to fabrik are documented in this file. The format follows
 
 ## [Unreleased]
 
+Agents can ask each other for context directly, through their herdr tabs.
+
+### Added
+
+- `fabrik ask <slug> "<question>" [--task KEY]`: an agent, or you from a shell, asks a colleague.
+  The daemon types the question into the colleague's herdr tab once it is between runs, ahead of
+  its queued wakes, and the colleague replies with `fabrik answer <ID> "<answer>"` (`-` reads the
+  answer from stdin). The asker's command waits up to 90 seconds (`--timeout`) and prints the
+  answer; `fabrik ask --wait <ID>` keeps waiting. An answer the asker stopped waiting for arrives
+  as a wake (`answer from <slug>`). The CLI only writes fabrik's state, so it also works inside the
+  Codex sandbox; only the daemon talks to herdr.
+- Limits that keep questions cheap: `heartbeat.max_asks_per_hour` per asking agent (gear `steady`:
+  4, `turbo`: 20, `0` switches questions off), one question at a time per colleague, no questions to
+  an agent that is itself waiting for an answer (so agents never wait on each other), 2000
+  characters per question and 4000 per answer. Questions nobody had time for fail after 15 minutes.
+- When a colleague answers in its chat instead of with `fabrik answer`, fabrik copies the reply
+  from its tab. A colleague that does not react within two minutes, is stopped or quits fails the
+  question instead of leaving the asker waiting.
+- `fabrik status` lists open questions; agents answering one show as `answering`, also on their
+  Obsidian status cards.
+- The heartbeat skill and the generated agent instructions say when to ask a colleague, when to
+  file a ticket or ask the human instead, and how to answer.
+
 ## [0.3.0] - 2026-10-18
 
 fabrik now starts frugal and lets you turn it up: new users explore with small tasks on modest

@@ -68,7 +68,8 @@ fabrik keeps the idea and drops the rest:
 3. **The heartbeat wakes the right agent.** The fabrik daemon sees the label and sends a short
    `[fabrik wake …]` prompt to that agent's tab, but only once herdr reports it idle.
 4. **The agent claims it and works.** Claims are exclusive, so two agents never do the same job.
-   Progress goes on the ticket as comments.
+   Progress goes on the ticket as comments. When it needs context a colleague has, it asks it
+   directly with `fabrik ask`, and the answer comes back within the same run.
 5. **It writes down what it learned.** Decisions and journals go into your vault as plain notes.
    Chats can be reset; notes stay.
 6. **It hands the work back.** The ticket moves to review, the agent runs `fabrik run done`, and it
@@ -92,6 +93,10 @@ fabrik keeps the idea and drops the rest:
   resets, stops agents from waking each other in loops, and pauses an agent after repeated failures.
 - **Agents speak fabrik:** a small CLI for `inbox`, `task claim/comment/state/create`, `ask-human`,
   `note` and `run done`. Comments are signed, so agents never wake themselves.
+- **Agents ask each other:** `fabrik ask cody "Which API version does the client use?"` types the
+  question into Cody's tab once Cody is between runs and prints Cody's answer to the asker. You
+  can watch both sides in their tabs. A per-agent hourly limit (4 in `steady`), one question at a
+  time per colleague, and a guard against agents waiting on each other keep it cheap.
 - **Humans stay in charge:** money, outbound mail, credentials and new hires go through
   `fabrik ask-human`, which opens a Plane ticket labelled `human` and waits for your answer. Once
   the agent has acted on it, fabrik closes the question. You can talk to any agent in its tab,
@@ -205,7 +210,7 @@ herdr:     { session: default, workspace: acme }
 plane:     { url: http://plane.lan, workspace: acme, projects: [ACME], key_env: PLANE_API_KEY }
 obsidian:  { vault: /path/to/vault, folder: Fabrik }
 gear:      steady  # steady | turbo; sets autonomy and the caps below unless you set them
-heartbeat: { tick: 10s, timer: off, cooldown: 60s, rotate_after_runs: 15 }   # max_concurrent, max_runs_per_day: from the gear
+heartbeat: { tick: 10s, timer: off, cooldown: 60s, rotate_after_runs: 15 }   # max_concurrent, max_runs_per_day, max_asks_per_hour: from the gear
 router:    { unassigned: ada }
 isolate:   false   # true: agents skip your personal Claude Code settings, hooks, plugins and skills
 ```
@@ -229,12 +234,13 @@ Agents follow the company gear (`steady`: low, `turbo`: medium) unless their AGE
 `autonomy`. Each level maps to the harness's own permission flags; the `fabrik` CLI itself never
 needs approval.
 
-| gear | autonomy | agents at once | runs per agent per day |
-|---|---|---|---|
-| `steady` (default) | low | 2 | 15 |
-| `turbo` | medium | 4 | 60 |
+| gear | autonomy | agents at once | runs per agent per day | questions per agent per hour |
+|---|---|---|---|---|
+| `steady` (default) | low | 2 | 15 | 4 |
+| `turbo` | medium | 4 | 60 | 20 |
 
-Explicit `max_concurrent` and `max_runs_per_day` in `fabrik.yaml` override the gear.
+Explicit `max_concurrent`, `max_runs_per_day` and `max_asks_per_hour` in `fabrik.yaml` override
+the gear; `max_asks_per_hour: 0` switches questions between agents off.
 
 | autonomy | Claude Code | Codex | Grok |
 |---|---|---|---|
@@ -269,11 +275,13 @@ Explicit `max_concurrent` and `max_runs_per_day` in `fabrik.yaml` override the g
 | `fabrik status` · `org` · `models` | Show agents and queues, the org chart, available models |
 | `fabrik wake <slug>` · `pause` · `resume` | Control the heartbeat per agent |
 | `fabrik stop <slug>` | Interrupt the agent's turn, pause it, keep its work queued for `resume` |
+| `fabrik ask <slug> "<question>"` | Ask an agent from your shell; it answers between its runs |
 | `fabrik service install` · `daemon` | Run the heartbeat under systemd, or in the foreground |
 | `fabrik secret set KEY` | Store a secret outside the company folder |
 
 Agents use: `fabrik whoami`, `inbox`, `task show|claim|release|comment|state|create`,
-`ask-human`, `note` and `run done`. `fabrik help heartbeat` prints the procedure they follow.
+`ask`, `answer`, `ask-human`, `note` and `run done`. `fabrik help heartbeat` prints the procedure
+they follow.
 Claiming a ticket marks who works on it without changing its `agent:` labels, and a ticket with
 open sub-tasks cannot be set to done without `--force`.
 

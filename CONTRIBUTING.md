@@ -37,8 +37,8 @@ Explain what was wrong and why the change fixes it. Wrap at 72 columns.
 
 - **Types:** `feat` (new behaviour), `fix` (a bug), `docs`, `refactor` (no behaviour change),
   `test`, `chore` (tooling, CI, releases).
-- **Scopes** follow the source files: `apply`, `daemon`, `rules`, `tasks`, `plane`, `harness`,
-  `agents`, `control`, `doctor`, `init`, `status`, `plugin`, `skills`.
+- **Scopes** follow the source files: `apply`, `asks`, `daemon`, `rules`, `tasks`, `plane`,
+  `harness`, `agents`, `control`, `doctor`, `init`, `status`, `plugin`, `skills`.
 - One logical change per commit, with its tests. A breaking change gets a `!` after the scope and a
   `BREAKING CHANGE:` footer.
 

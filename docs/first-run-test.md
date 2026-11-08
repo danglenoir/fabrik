@@ -9,7 +9,7 @@ after onboarding: the CEO's first task *is* the test.
 - Every piece of work is a one-line file or a one-sentence comment.
 - `rotate_after_runs: 2` keeps every conversation short, and also tests context resets.
 - Anything that can be checked without a model is checked by you with a CLI command (0 tokens).
-- Expect about 18 short wakes in total. On subscriptions that is a small slice of a 5-hour window.
+- Expect about 20 short wakes and answers in total. On subscriptions that is a small slice of a 5-hour window.
 
 ## Coverage
 
@@ -30,6 +30,7 @@ after onboarding: the CEO's first task *is* the test.
 | Safety: ask-human gate, open sub-tasks block `done`, injected instruction treated as data, global instruction files kept out | §3, §4.6, §6 |
 | Loop guard (agents waking each other), human questions closed automatically | §4 |
 | Pause / resume / stop | §5 |
+| Questions between agents: `ask`, `answer`, delivery between runs, `fabrik status` | §5 |
 
 ## 0. Prerequisites (once, about 10 minutes, 0 tokens)
 
@@ -244,6 +245,22 @@ fabrik resume ada                            # ada continues with "continue afte
 ```
 
 - [ ] Every command behaves as commented.
+
+Questions between agents (two one-sentence answers and one short wake):
+
+```sh
+fabrik ask cody "In one sentence: which file did you write for FAB-2?"   # you ask, as the human
+fabrik wake wren --reason "ask cody with fabrik ask which harness it runs on, then fabrik note the answer"
+fabrik status                                # while wren waits: "open questions: q-… wren → cody"
+```
+
+- [ ] cody's tab shows `[fabrik question q-… from … (the human)]`; cody replies with `fabrik answer`, and
+  your shell prints `cody answers (q-…)` with its sentence. cody does not start other work or run
+  `fabrik run done`.
+- [ ] wren's tab shows `fabrik ask cody …` waiting, cody's tab the question from Wren, and wren's
+  command prints cody's answer as soon as cody runs `fabrik answer`. wren's journal has the note.
+- [ ] `fabrik ask --as cody wren "anything"` while wren waits for cody is refused: wren is waiting for
+  cody's answer.
 - [ ] In herdr, press the key bound to `fabrik.status` (or run
   `herdr plugin action invoke status --plugin fabrik`). The compact popup lists the three agents,
   their state, runs and queue, and the daemon state, in your herdr theme's colours.
