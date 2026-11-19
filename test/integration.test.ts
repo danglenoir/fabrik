@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { askHuman, inbox, note, runDone, taskClaim, taskComment, taskCreate, taskState } from '../src/agent.ts';
@@ -68,6 +68,19 @@ test('plane clients share one request window across processes', async () => {
   const dir = join(process.env.FABRIK_CONFIG_DIR!, 'plane-rate');
   const [file] = readdirSync(dir).filter((f) => f.endsWith('.json'));
   assert.ok(JSON.parse(readFileSync(join(dir, file!), 'utf8')).length >= 2, 'both clients counted in the same window');
+});
+
+test('a sandbox that cannot write the request window still reaches Plane', { skip: process.getuid?.() === 0 }, async () => {
+  const dir = join(process.env.FABRIK_CONFIG_DIR!, 'plane-rate');
+  mkdirSync(dir, { recursive: true });
+  chmodSync(dir, 0o555);
+  try {
+    const plane = new Plane(company.config.plane!, fake.key, { onRetry: () => undefined });
+    assert.ok((await plane.me()).id);
+    assert.ok((await plane.me()).id, 'later calls skip the shared window');
+  } finally {
+    chmodSync(dir, 0o755);
+  }
 });
 
 test('doctor: Plane states, workspace membership and key scope', async () => {

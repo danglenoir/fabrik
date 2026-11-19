@@ -63,12 +63,20 @@ export interface PlaneOptions {
 
 /**
  * Plane rate-limits per API key, but the daemon and every agent's `fabrik task …` call are separate
- * processes. They share one request window in a file, keyed by Plane URL and key.
+ * processes. They share one request window in a file, keyed by Plane URL and key. Agents in a
+ * harness sandbox need write access to this folder (see the Codex adapter).
  */
+export function planeRateDir(): string {
+  return join(fabrikConfigDir(), 'plane-rate');
+}
+
 function rateFile(cfg: PlaneConfig, apiKey: string): string {
   const id = createHash('sha256').update(`${cfg.url}\n${apiKey}`).digest('hex').slice(0, 12);
-  return join(fabrikConfigDir(), 'plane-rate', `${id}.json`);
+  return join(planeRateDir(), `${id}.json`);
 }
+
+/** Errors of a folder the process may read but not write, such as a harness sandbox outside its writable roots. */
+const READ_ONLY = new Set(['EROFS', 'EACCES', 'EPERM']);
 
 /** Plane Community Edition /api/v1 client (X-Api-Key). Cloud-only features are not used. */
 export class Plane {
@@ -77,6 +85,8 @@ export class Plane {
   private fetchImpl: typeof fetch;
   private onRetry: (message: string) => void;
   private rateFile: string;
+  /** The shared window could not be written; this process paces itself only by Plane's 429s. */
+  private unshared = false;
   private projectCache: PlaneProject[] | null = null;
   private stateCache = new Map<string, PlaneState[]>();
   private labelCache = new Map<string, PlaneLabel[]>();
@@ -92,16 +102,24 @@ export class Plane {
 
   /** Sliding one-minute window of at most `maxRpm` requests, shared by all fabrik processes. */
   private async throttle(): Promise<void> {
-    for (;;) {
-      const wait = await withFileLock(`${this.rateFile}.lock`, () => {
-        const now = Date.now();
-        let sent: number[];
-        try { sent = readJson<number[]>(this.rateFile, []).filter((t) => now - t < 60_000); } catch { sent = []; }
-        if (sent.length >= this.cfg.maxRpm) return 60_000 - (now - sent[0]!) + 50;
-        sent.push(now);
-        writeJson(this.rateFile, sent);
-        return 0;
-      }, { timeoutMs: 30_000, staleMs: 10_000 });
+    while (!this.unshared) {
+      let wait: number;
+      try {
+        wait = await withFileLock(`${this.rateFile}.lock`, () => {
+          const now = Date.now();
+          let sent: number[];
+          try { sent = readJson<number[]>(this.rateFile, []).filter((t) => now - t < 60_000); } catch { sent = []; }
+          if (sent.length >= this.cfg.maxRpm) return 60_000 - (now - sent[0]!) + 50;
+          sent.push(now);
+          writeJson(this.rateFile, sent);
+          return 0;
+        }, { timeoutMs: 30_000, staleMs: 10_000 });
+      } catch (err) {
+        // Pacing must never cost the agent its Plane access; the 429 retries in request() still apply.
+        if (!READ_ONLY.has((err as NodeJS.ErrnoException).code ?? '')) throw err;
+        this.unshared = true;
+        return;
+      }
       if (wait === 0) return;
       await sleep(wait);
     }
