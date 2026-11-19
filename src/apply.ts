@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { herdrName, renderOrg, tabLabel } from './company.ts';
 import type { AgentDef, Company } from './company.ts';
@@ -139,6 +139,7 @@ async function introduce(herdr: Herdr, company: Company, agent: AgentDef, result
 async function startInPane(herdr: Herdr, company: Company, agent: AgentDef, paneId: string, tabId: string, acceptTrust?: boolean): Promise<string | null> {
   const adapter = adapterFor(agent);
   try {
+    for (const dir of adapter.writableDirs?.(agent, company) ?? []) mkdirSync(dir, { recursive: true });
     // herdr types the start command into the pane's shell, so variables exported there reach the harness.
     await herdr.runInPane(paneId, shellExport(agentEnv(agent, company)));
     await herdr.startAgent(herdrName(company, agent), adapter.harness, paneId, adapter.launchArgs(agent, company), company.config.herdr.startTimeoutMs);

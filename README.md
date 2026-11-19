@@ -249,6 +249,10 @@ the gear; `max_asks_per_hour: 0` switches questions between agents off.
 | medium: no prompts for routine work | `auto` | `workspace-write`, never asks | `auto` |
 | high: no prompts at all | `bypassPermissions` | no sandbox, no approvals | `bypassPermissions` |
 
+Codex's `workspace-write` sandbox lets agents write the company folder, the vault folder and
+`~/.config/fabrik/plane-rate` (the request window fabrik shares across processes to pace Plane
+calls). Codex keeps `.git` read-only in every writable folder, so a sandboxed Codex agent cannot commit.
+
 ### What every agent gets
 
 - **Environment:** `FABRIK_AGENT`, `FABRIK_COMPANY_DIR`, `FABRIK_DATA_DIR`, and with Obsidian

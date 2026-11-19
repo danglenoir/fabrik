@@ -6,6 +6,16 @@ All notable changes to fabrik are documented in this file. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Codex agents could not reach Plane at all: every `fabrik` call failed with `EROFS`, because the
+  sandbox kept `~/.config/fabrik/plane-rate`, where fabrik paces Plane requests, read-only. Codex
+  agents may now write there, and Plane calls go through unpaced (the 429 retries still apply) when a
+  sandbox keeps that folder read-only anyway.
+- Codex agents could write only their own folder and `.fabrik/`, not the company folder where their
+  colleagues keep their work. They now get the whole company folder, like Claude agents. fabrik
+  creates these folders before Codex starts, since a missing one fails every sandboxed command.
+
 ## [0.4.1] - 2026-11-08
 
 ### Fixed

@@ -1,4 +1,6 @@
 import { strict as assert } from 'node:assert';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { apply } from '../src/apply.ts';
 import { loadCompany } from '../src/company.ts';
@@ -31,6 +33,7 @@ test('apply starts and introduces every agent once, and a rerun changes nothing'
   assert.deepEqual(herdr.tabList.map((t) => t.label), ['board', 'ada · ceo', 'cody · engineer']);
   assert.equal(loadState(company).agents.cody!.introduced, true);
   assert.match(herdr.shellLines[0]!.command, /^ export FABRIK_AGENT='ada' FABRIK_COMPANY_DIR='[^']+'/, 'variables exported before the harness starts');
+  assert.ok(existsSync(join(process.env.FABRIK_CONFIG_DIR!, 'plane-rate')), "codex's writable folders exist before it starts");
 
   for (const a of herdr.live) a.agent_status = 'idle';
   const again = await run(company, herdr);

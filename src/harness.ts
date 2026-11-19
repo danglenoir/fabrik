@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { effectiveAutonomy } from './company.ts';
 import type { AgentDef, Autonomy, Company, Harness } from './company.ts';
 import { codexHome } from './isolation.ts';
+import { planeRateDir } from './plane.ts';
 import { FabrikError } from './util.ts';
 
 export interface Dialog {
@@ -31,6 +32,8 @@ export interface HarnessAdapter {
   listModels(): Promise<string[] | null>;
   /** Extra environment for the harness process, on top of agentEnv(). */
   env?(agent: AgentDef, company: Company): Record<string, string>;
+  /** Folders outside its working directory the harness's sandbox lets the agent write. fabrik creates them before the start. */
+  writableDirs?(agent: AgentDef, company: Company): string[];
 }
 
 function identityLine(agent: AgentDef, company: Company): string {
@@ -87,6 +90,19 @@ const claude: HarnessAdapter = {
   },
 };
 
+/**
+ * The workspace-write sandbox only covers the cwd (the agent's folder) and has no network. Agents
+ * write next to their colleagues in the company folder, fabrik writes claims and reports under
+ * .fabrik/, journals in the vault, and paces Plane calls in ~/.config/fabrik/plane-rate. Codex keeps
+ * .git read-only inside every writable folder. A writable folder that does not exist makes every
+ * sandboxed command fail, so fabrik creates them before the start.
+ */
+function codexWritableDirs(agent: AgentDef, company: Company): string[] {
+  if (effectiveAutonomy(company, agent) === 'high') return []; // no sandbox
+  const o = company.config.obsidian;
+  return [company.root, planeRateDir(), ...(o ? [join(o.vault, o.folder)] : [])];
+}
+
 const codex: HarnessAdapter = {
   harness: 'codex',
   supported: true,
@@ -94,11 +110,7 @@ const codex: HarnessAdapter = {
     // No update prompt at startup: it blocks the pane until a human answers it.
     const args = ['-m', agent.model, ...CODEX_PERMISSION[effectiveAutonomy(company, agent)], '-c', 'check_for_update_on_startup=false'];
     if (effectiveAutonomy(company, agent) !== 'high') {
-      // The workspace-write sandbox only covers the cwd and has no network. fabrik needs to
-      // write claims/reports under .fabrik/, journals in the vault, and reach Plane.
-      args.push('--add-dir', join(company.root, '.fabrik'));
-      const o = company.config.obsidian;
-      if (o) args.push('--add-dir', join(o.vault, o.folder));
+      for (const dir of codexWritableDirs(agent, company)) args.push('--add-dir', dir);
       args.push('-c', 'sandbox_workspace_write.network_access=true');
     }
     if (agent.effort) args.push('-c', `model_reasoning_effort=${JSON.stringify(agent.effort)}`);
@@ -118,6 +130,7 @@ const codex: HarnessAdapter = {
     // The human's ~/.codex minus its global AGENTS.md, which would compete with the company's instructions.
     return { CODEX_HOME: codexHome(company) };
   },
+  writableDirs: codexWritableDirs,
   async listModels() {
     const out = await exec('codex', ['debug', 'models']);
     try {

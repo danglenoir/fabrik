@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { ADAPTERS, agentEnv, shellExport } from '../src/harness.ts';
 import { makeCompany } from './helpers.ts';
 
@@ -25,6 +26,14 @@ test('codex starts sandboxed with network access and without the update prompt',
   assert.deepEqual(args.slice(2, 6), ['-s', 'workspace-write', '-a', 'on-request']);
   assert.ok(args.includes('sandbox_workspace_write.network_access=true'));
   assert.ok(args.includes('check_for_update_on_startup=false'));
+});
+
+test('codex may write the company folder and Plane pacing, like claude agents', () => {
+  const dirs = (args: string[]) => args.flatMap((a, i) => (a === '--add-dir' ? [args[i + 1]] : []));
+  const expected = [company.root, join(process.env.FABRIK_CONFIG_DIR!, 'plane-rate')];
+  assert.deepEqual(dirs(ADAPTERS.codex.launchArgs(agent('cody', 'low'), company)), expected);
+  assert.deepEqual(ADAPTERS.codex.writableDirs!(agent('cody', 'low'), company), expected);
+  assert.deepEqual(dirs(ADAPTERS.codex.launchArgs(agent('cody', 'high'), company)), [], 'no sandbox, no extra folders');
 });
 
 test('agents get their company paths as environment variables', () => {
